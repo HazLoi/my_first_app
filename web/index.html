@@ -19,13 +19,45 @@
           <div class="intro">
             <p class="eyebrow">PHI ĐỘI THỬ NGHIỆM <span>/</span> 01</p>
             <h1>KHÔNG<br>CHIẾN</h1>
-            <p class="tagline">Đàn gà đột kích. Phi công xuất kích!</p>
+            <p class="tagline">Chọn thử thách. Chơi ngay cả khi offline!</p>
             <div class="mode-list" aria-label="Chọn chế độ chơi">
               <button id="start-button" class="mode-card mode-offline">
                 <span class="mode-icon" aria-hidden="true">✈</span>
                 <span class="mode-copy">
-                  <strong>CHIẾN DỊCH OFFLINE</strong>
-                  <small>Chơi ngay · Lưu điểm trên máy</small>
+                  <strong>BẮN GÀ SINH TỒN</strong>
+                  <small>Chiến dịch arcade · Lưu kỷ lục</small>
+                </span>
+                <span class="mode-arrow" aria-hidden="true">→</span>
+              </button>
+              <button class="mode-card mode-offline extra-mode" type="button" data-mini-game="time-trial">
+                <span class="mode-icon" aria-hidden="true">↗</span>
+                <span class="mode-copy">
+                  <strong>ĐUA NÉ CHƯỚNG NGẠI</strong>
+                  <small>Time trial · 3 làn đường</small>
+                </span>
+                <span class="mode-arrow" aria-hidden="true">→</span>
+              </button>
+              <button class="mode-card mode-offline extra-mode" type="button" data-mini-game="puzzle">
+                <span class="mode-icon" aria-hidden="true">▦</span>
+                <span class="mode-copy">
+                  <strong>GIẢI ĐỐ 2048</strong>
+                  <small>Ghép ô số · Lưu điểm cao</small>
+                </span>
+                <span class="mode-arrow" aria-hidden="true">→</span>
+              </button>
+              <button class="mode-card mode-offline extra-mode" type="button" data-mini-game="tactics">
+                <span class="mode-icon" aria-hidden="true">♟</span>
+                <span class="mode-copy">
+                  <strong>CHIẾN THUẬT THEO LƯỢT</strong>
+                  <small>Đi quân, áp sát và tấn công</small>
+                </span>
+                <span class="mode-arrow" aria-hidden="true">→</span>
+              </button>
+              <button class="mode-card mode-offline extra-mode" type="button" data-mini-game="cards">
+                <span class="mode-icon" aria-hidden="true">▤</span>
+                <span class="mode-copy">
+                  <strong>THẺ BÀI SINH TỒN</strong>
+                  <small>Chọn bài · Hạ 3 đợt địch</small>
                 </span>
                 <span class="mode-arrow" aria-hidden="true">→</span>
               </button>
@@ -55,6 +87,27 @@
             <span class="preview-label label-sector">WAVE 01&nbsp; / &nbsp;15 BIRDS</span>
             <span class="preview-caption">NHIỆM VỤ: BẢO VỆ BẦU TRỜI</span>
           </div>
+        </div>
+      </section>
+
+      <section id="mini-game-screen" class="screen mini-game-screen" hidden>
+        <div class="mini-game-shell">
+          <header class="mini-game-header">
+            <button id="mini-back-button" class="button mini-back-button" type="button">← CHỌN GAME</button>
+            <div class="mini-game-heading">
+              <p class="eyebrow">CHẾ ĐỘ OFFLINE</p>
+              <h2 id="mini-game-title">TRÒ CHƠI</h2>
+            </div>
+            <div class="mini-game-stat">
+              <span id="mini-game-status" aria-live="polite">SẴN SÀNG</span>
+              <strong id="mini-game-score">0</strong>
+            </div>
+          </header>
+          <div id="mini-game-content" class="mini-game-content"></div>
+          <footer class="mini-game-footer">
+            <p id="mini-game-help">Tiến trình và kỷ lục được lưu trên thiết bị.</p>
+            <button id="mini-restart-button" class="button button-primary" type="button">CHƠI LẠI</button>
+          </footer>
         </div>
       </section>
 
@@ -106,5 +159,6 @@
       </section>
     </main>
     <script src="game.js" defer></script>
+    <script src="mini-games.js" defer></script>
   </body>
 </html>

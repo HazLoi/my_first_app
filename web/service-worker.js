@@ -1,7 +1,7 @@
 "use strict";
 
-const CACHE_NAME = "khong-chien-shell-v1";
-const APP_SHELL = ["./", "./index.html", "./style.css", "./game.js"];
+const CACHE_NAME = "khong-chien-shell-v2";
+const APP_SHELL = ["./", "./index.html", "./style.css", "./game.js", "./mini-games.js"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
