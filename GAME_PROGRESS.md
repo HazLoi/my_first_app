@@ -74,6 +74,38 @@ người chơi online.
 5. Nếu cần mô hình 3D thật, đánh giá WebGL/engine riêng sau khi chốt gameplay
    2.5D và mục tiêu hiệu năng.
 
+## Ý tưởng thể loại có thể chơi offline trước, mở rộng online sau
+
+Các ý tưởng dưới đây là hướng phát triển để cân nhắc, chưa phải tính năng đã có.
+Nên giữ luật chơi và phần chơi đơn hoạt động độc lập với kết nối; lớp online chỉ
+bổ sung đồng bộ, thi đấu hoặc lưu trữ trên máy chủ.
+
+| Thể loại | Chơi offline trước | Mở rộng online sau | Độ phù hợp với source hiện tại |
+| --- | --- | --- | --- |
+| Bắn gà / sinh tồn theo đợt | AI, điểm, vật phẩm và độ khó chạy cục bộ | Co-op hoặc đấu điểm realtime; cần máy chủ để quản lý phòng và xác thực kết quả | Cao nhất: tái sử dụng gameplay, điều khiển và Canvas hiện có |
+| Time trial / đua né chướng ngại | Chạy đua với đồng hồ và lưu kỷ lục cục bộ | Bảng xếp hạng, chia sẻ đường chạy hoặc đua “bóng ma” không đồng bộ | Cao: có thể dùng lại vòng lặp animation và điểm số |
+| Giải đố theo màn / thử thách hằng ngày | Màn chơi, lời giải và tiến độ được lưu trên thiết bị | Chia sẻ thử thách, so điểm/thời gian và bảng xếp hạng | Khá cao: ít phụ thuộc realtime; cần thiết kế nội dung và UI riêng |
+| Chiến thuật theo lượt / đấu bàn | Chơi với AI hoặc hai người trên cùng thiết bị | Gửi nước đi theo lượt, chơi bất đồng bộ hoặc ghép trận | Trung bình: dễ tách luật chơi nhưng là một mode/game mới |
+| Thẻ bài / xây bộ bài roguelike | Đấu AI, tạo bộ bài và lưu tiến trình cục bộ | Đấu theo lượt hoặc chia sẻ thử thách/bộ bài | Trung bình: dễ bắt đầu offline, nhưng cần thiết kế luật và giao diện riêng |
+
+**Lộ trình gợi ý:** ưu tiên thử thách tính điểm hoặc time trial để bổ sung nội
+dung mà vẫn bám gameplay hiện có; sau đó mới cân nhắc co-op realtime. Với các
+mode mới, tách luật chơi khỏi vẽ Canvas và thao tác DOM; dùng dữ liệu màn chơi/
+seed ngẫu nhiên cố định nếu cần tái tạo lượt chơi. Dữ liệu nhỏ như kỷ lục có thể
+tiếp tục dùng `localStorage`; tiến trình hoặc bản chơi có cấu trúc lớn hơn có
+thể cần IndexedDB. Chỉ gửi dữ liệu lên máy chủ khi người chơi chọn tính năng
+online. WebSocket là một lựa chọn cho trao đổi hai chiều realtime, không thay
+thế backend hay cơ chế xác thực.
+
+Tham khảo nền tảng web:
+
+- [MDN: Offline and background operation](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Offline_and_background_operation):
+  Service Worker cache tài nguyên để ứng dụng có thể mở khi mất mạng.
+- [MDN: IndexedDB API](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API):
+  lưu trữ dữ liệu có cấu trúc ở phía trình duyệt.
+- [MDN: WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API):
+  kênh giao tiếp hai chiều giữa trình duyệt và máy chủ cho tính năng realtime.
+
 ## Trạng thái Git
 
 Commit nền: `4f8687d` (`feat: migrate game to static web`). Các mục hoàn thành
