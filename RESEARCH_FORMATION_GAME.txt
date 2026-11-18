@@ -1,0 +1,131 @@
+NGHIÊN CỨU GAME CHIẾN THUẬT ĐỘI HÌNH ĐÁNH QUÁI VƯỢT MÀN
+Ngày: 2026-11-18
+Trạng thái: Nghiên cứu và đề xuất; chưa bắt đầu lập trình game mới.
+
+1. MỤC TIÊU
+
+Phát triển game chiến thuật đội hình đánh quái qua nhiều màn. Người chơi sắp
+xếp đội hình, trận chiến tự động, nhận thưởng và điều chỉnh đội hình cho trận
+tiếp theo.
+
+Game có nhân vật 2D và bảy hệ nguyên tố:
+- Ngũ hành: Hỏa, Thủy, Thổ, Mộc, Kim.
+- Ánh sáng: hỗ trợ trị liệu.
+- Bóng tối: gây hiệu ứng bất lợi/debuff.
+
+Định hướng được chọn trong trao đổi: đội hình tự đánh (auto-battle), không phải
+game đánh theo lượt trên bàn cờ. Giao diện hướng đến phong cách game chiến thuật
+xếp đội hình/gacha, nhưng cần rõ ràng, dễ đọc và tránh lạm dụng hiệu ứng.
+
+2. KẾT QUẢ TÌM HIỂU TÊN GAME THAM KHẢO
+
+Chưa tìm thấy nguồn chính thức đủ tin cậy để xác nhận chính xác gameplay của
+"Ta là tông sư trong tiên môn". Tên này có thể là tên Việt hóa, tên theo khu
+vực hoặc tên dùng trong quảng cáo. Vì vậy, không nên gán các cơ chế cụ thể cho
+tựa game này nếu chưa có link, ảnh màn hình hoặc video từ người dùng.
+
+Một số tựa game có thể tham khảo ở mức cơ chế tổng quát:
+
+- Fantasy Wars trên PC tập trung vào chiến dịch fantasy, quân đội, địa hình và
+  nâng cấp đơn vị. Đây là tham khảo về tiến trình chiến dịch và chuẩn bị quân,
+  không phải auto-battler.
+- Fantasy War Tactics sử dụng đội anh hùng, bản đồ ô và các yếu tố chiến thuật
+  như phối hợp đồng đội, địa hình, thuộc tính và hướng tấn công. Đây là tham
+  khảo về khả năng tạo quyết định chiến thuật bằng đội hình.
+- Auto-battler thường có vòng lặp chuẩn bị đội hình, trận tự động, sau đó quay
+  lại giai đoạn chuẩn bị. Đây là mô hình gần nhất với hướng auto-battle được
+  chọn.
+
+3. VÒNG LẶP GAMEPLAY ĐỀ XUẤT
+
+1) Chọn màn trên bản đồ chiến dịch.
+2) Xem trước đội quái, hệ, vai trò và kỹ năng nguy hiểm.
+3) Chọn tối đa 5 nhân vật, sắp xếp vào các vị trí trên/dưới.
+4) Bắt đầu trận tự động; có thể tạm dừng, tăng tốc và xem diễn biến.
+5) Nhận thưởng sau trận; nếu thua, xem nguyên nhân và điều chỉnh đội hình.
+6) Tiếp tục các trận trong màn/chặng, đối mặt boss ở cuối chặng.
+
+Đề xuất đội hình ban đầu: 5 vị trí, gồm 2 hàng trước và 3 hàng sau. Hàng trước
+thường chịu đòn và bảo vệ; hàng sau thường gây sát thương tầm xa, hỗ trợ, trị
+liệu hoặc khống chế. Đây là giả định để thiết kế MVP, cần kiểm thử trên màn
+hình desktop và điện thoại trước khi cố định.
+
+4. VAI TRÒ VÀ HỆ NGUYÊN TỐ
+
+Vai trò nên độc lập với hệ nguyên tố:
+- Chống chịu: có nhiều máu/giáp, bảo vệ đồng đội hoặc chặn đòn.
+- Đấu sĩ: gây sát thương ổn định, thường ở hàng trước.
+- Sát thủ: tấn công mục tiêu yếu hoặc hàng sau.
+- Pháp sư: gây sát thương diện rộng hoặc hiệu ứng theo hệ.
+- Hỗ trợ: tăng chỉ số, tạo năng lượng hoặc khống chế.
+- Trị liệu: hồi máu, tạo khiên hoặc giải hiệu ứng xấu.
+
+Ứng dụng bảy hệ:
+- Hỏa, Thủy, Thổ, Mộc, Kim: có thể dùng vòng tương khắc Ngũ hành làm lợi thế
+  nhỏ. Không nên để khắc hệ quyết định thắng thua một cách tuyệt đối.
+- Ánh sáng: tập trung vào trị liệu, bảo vệ, khiên hoặc giải hiệu ứng xấu.
+- Bóng tối: tập trung vào suy yếu, độc/ăn mòn, hút sức hoặc cản trở hồi phục.
+- Hiển thị hệ và kỹ năng của quái trước trận để người chơi có thể đổi đội hình.
+- Tránh tạo trận đấu bắt buộc phải sở hữu một nhân vật cụ thể mới có thể vượt.
+
+5. TẠO ĐỘ KHÓ NHƯNG VẪN CÔNG BẰNG
+
+- Tăng độ khó bằng bố cục và cơ chế của quái, không chỉ tăng máu/sát thương
+  theo cấp số nhân.
+- Ví dụ: quái chắn đòn cho hàng sau; quái nhắm vào hàng yếu; boss báo trước
+  kỹ năng diện rộng; quái có khiên cần phối hợp tấn công để phá.
+- Báo trước mục tiêu, phạm vi kỹ năng và hệ của quái để thất bại có thể rút ra
+  bài học.
+- Có thể cho một chặng gồm nhiều trận. Máu còn lại/tài nguyên hồi phục giữa
+  trận tạo áp lực cho quyết định tiếp tục hay đổi đội hình.
+- Mỗi trận chính nên khó nhưng vượt được bằng cách sắp xếp hợp lý. Các điều
+  kiện phụ như thắng nhanh/bảo toàn nhân vật nên là thử thách tùy chọn.
+- Sau trận, hiển thị rõ sát thương, hồi máu, hiệu ứng và lý do nhân vật bị hạ.
+- Cho tạm dừng, tăng tốc và xem lại diễn biến để người chơi hiểu trận auto.
+
+6. HƯỚNG GIAO DIỆN 2D
+
+- Màn đầu: bản đồ chiến dịch và nút vào màn tiếp theo; không cần trưng bày
+  nhiều chế độ không liên quan.
+- Màn chuẩn bị trận: hiển thị đội quái, đội hình người chơi, vị trí, vai trò,
+  hệ và thông tin tóm tắt kỹ năng; khu vực chọn nhân vật tách rõ với chiến
+  trường.
+- Màn trận: nhân vật 2D dễ nhận diện; thanh máu/năng lượng và hiệu ứng trạng
+  thái dễ đọc; có nút tạm dừng/tăng tốc.
+- Màn kết quả: lý do thắng/thua, thưởng, nút chơi lại/chỉnh đội hình/tiếp tục.
+- Có thể tham khảo phong cách game chiến thuật/gacha, nhưng ưu tiên thứ tự
+  thông tin, kích thước chữ và khả năng thao tác hơn khung viền, hiệu ứng sáng
+  hoặc chữ trang trí.
+
+7. PHẠM VI MVP DỰ KIẾN (CHƯA ĐƯỢC PHÊ DUYỆT ĐỂ CODE)
+
+- Một màn hình chọn/chỉnh sửa đội hình.
+- 5 slot đội hình; bộ nhân vật thử nghiệm đại diện cho các vai trò/hệ.
+- Vài màn liên tiếp, quái có hành vi và hệ hiển thị rõ trước trận.
+- Trận tự động với máu, kỹ năng và hiệu ứng có thể đọc được.
+- Kết quả trận và phần thưởng có thể dùng để nâng cấp cơ bản.
+- Lưu tiến trình ở trên thiết bị.
+- Chưa làm tài khoản, PvP, multiplayer, gacha/nap, hoặc đồng bộ máy chủ trong
+  MVP. Nếu sau này thêm online, cần thiết kế riêng phần xác thực và lưu trạng
+  thái trên server.
+
+8. NGUYÊN TẮC THAM KHẢO
+
+Chỉ học hỏi ở mức vòng lặp và ý tưởng cơ chế; không sao chép mã nguồn, hình ảnh,
+nhân vật, tên riêng, bố cục giao diện hoặc tài sản của game khác. Nhân vật và
+mỹ thuật cần được thiết kế riêng cho dự án.
+
+NGUỒN THAM KHẢO
+
+- Fantasy Wars (Steam, trang sản phẩm):
+  https://store.steampowered.com/app/63900/Fantasy_Wars/
+- Fantasy Wars (Wikipedia, tổng quan và chiến dịch):
+  https://en.wikipedia.org/wiki/Fantasy_Wars
+- Fantasy War Tactics (Wikipedia, tổng quan gameplay và chiến thuật):
+  https://en.wikipedia.org/wiki/Fantasy_War_Tactics
+- Auto battler (Wikipedia, vòng lặp chuẩn bị/trận tự động):
+  https://en.wikipedia.org/wiki/Auto_battler
+
+Lưu ý: trang của "Ta là tông sư trong tiên môn" chưa được xác định/xác minh
+trong quá trình tra cứu. Người dùng có thể bổ sung link game, ảnh màn hình hoặc
+video nếu muốn đối chiếu sát hơn.
