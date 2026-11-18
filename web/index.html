@@ -6,10 +6,10 @@
     <meta name="theme-color" content="#07111d">
     <meta
       name="description"
-      content="Không Chiến — game máy bay chạy trực tiếp trên trình duyệt."
+      content="Không Chiến — game bắn gà arcade chạy trực tiếp trên trình duyệt."
     >
     <link rel="stylesheet" href="style.css">
-    <title>Không Chiến — Trận chiến trên không</title>
+    <title>Không Chiến — Phi đội săn gà</title>
   </head>
   <body>
     <main class="app-shell">
@@ -19,24 +19,41 @@
           <div class="intro">
             <p class="eyebrow">PHI ĐỘI THỬ NGHIỆM <span>/</span> 01</p>
             <h1>KHÔNG<br>CHIẾN</h1>
-            <p class="tagline">Bầu trời không dành cho kẻ chậm tay.</p>
-            <button id="start-button" class="button button-primary">
-              <span aria-hidden="true">✈</span>
-              BAY THỬ NGAY
-            </button>
+            <p class="tagline">Đàn gà đột kích. Phi công xuất kích!</p>
+            <div class="mode-list" aria-label="Chọn chế độ chơi">
+              <button id="start-button" class="mode-card mode-offline">
+                <span class="mode-icon" aria-hidden="true">✈</span>
+                <span class="mode-copy">
+                  <strong>CHIẾN DỊCH OFFLINE</strong>
+                  <small>Chơi ngay · Lưu điểm trên máy</small>
+                </span>
+                <span class="mode-arrow" aria-hidden="true">→</span>
+              </button>
+              <button
+                class="mode-card mode-online"
+                type="button"
+                disabled
+                aria-label="Chế độ online, đang phát triển"
+              >
+                <span class="mode-icon" aria-hidden="true">⌁</span>
+                <span class="mode-copy">
+                  <strong>ĐẤU TRƯỜNG ONLINE</strong>
+                  <small>Chế độ 2 người · Sắp ra mắt</small>
+                </span>
+                <span class="mode-badge">SẮP CÓ</span>
+              </button>
+            </div>
             <ul class="instructions">
               <li><span aria-hidden="true">⌨</span> WASD / phím mũi tên để bay, Space để bắn</li>
-              <li><span aria-hidden="true">☝</span> Điện thoại: kéo máy bay, chạm nút BẮN</li>
+              <li><span aria-hidden="true">☝</span> Điện thoại: kéo máy bay, giữ nút BẮN</li>
             </ul>
-            <p class="prototype-note">BẢN THỬ NGHIỆM · CHƠI ĐƠN VỚI ĐỐI THỦ MÁY</p>
+            <p class="prototype-note">OFFLINE ĐANG CHƠI ĐƯỢC <span>•</span> ONLINE PHÁT TRIỂN SAU</p>
           </div>
-          <div class="preview" aria-hidden="true">
-            <div class="preview-sun"></div>
-            <div class="preview-grid"></div>
-            <div class="preview-plane preview-plane-player">✦</div>
-            <div class="preview-plane preview-plane-enemy">✦</div>
-            <span class="preview-label label-alt">ALT&nbsp; 2400 M</span>
-            <span class="preview-label label-sector">SECTOR 07</span>
+          <div class="preview">
+            <canvas id="preview-canvas" aria-hidden="true"></canvas>
+            <span class="preview-label label-alt">CLOUD FRONT&nbsp; 07</span>
+            <span class="preview-label label-sector">WAVE 01&nbsp; / &nbsp;15 BIRDS</span>
+            <span class="preview-caption">NHIỆM VỤ: BẢO VỆ BẦU TRỜI</span>
           </div>
         </div>
       </section>
@@ -44,23 +61,44 @@
       <section id="game-screen" class="screen game-screen" hidden>
         <canvas id="game-canvas" aria-label="Khu vực chơi game Không Chiến"></canvas>
         <div class="game-hud">
-          <div class="health-panel">
-            <div class="health-label"><span>PHI CÔNG XANH</span><span id="player-health-text">100%</span></div>
-            <div class="health-track"><div id="player-health-bar" class="health-fill player-fill"></div></div>
+          <div class="hud-card hud-score">
+            <span class="hud-label">ĐIỂM SỐ</span>
+            <strong id="score-text">000000</strong>
+            <small id="best-text">KỶ LỤC 000000</small>
           </div>
-          <p class="sector-label">KHU VỰC 07</p>
-          <div class="health-panel health-enemy">
-            <div class="health-label"><span>ĐỐI THỦ</span><span id="enemy-health-text">100%</span></div>
-            <div class="health-track"><div id="enemy-health-bar" class="health-fill enemy-fill"></div></div>
+          <div class="hud-card hud-wave">
+            <span class="hud-label">ĐÀN GÀ ĐỘT KÍCH</span>
+            <strong>ĐỢT <span id="wave-text">01</span></strong>
+            <div class="wave-track"><span id="wave-progress"></span></div>
+            <small id="birds-left">15 MỤC TIÊU</small>
+          </div>
+          <div class="hud-card hud-lives">
+            <span class="hud-label">MÁY BAY</span>
+            <strong id="lives-text" aria-label="3 mạng">♥ ♥ ♥</strong>
+            <small>PHI ĐỘI XANH</small>
           </div>
         </div>
+        <button id="pause-button" class="button button-pause" aria-label="Tạm dừng">Ⅱ</button>
         <p id="flight-data" class="flight-data">TỌA ĐỘ 50 / 78</p>
         <button id="exit-button" class="button button-quiet">← <span>THOÁT</span></button>
+        <button id="bomb-button" class="button button-bomb">
+          <span aria-hidden="true">✹</span> <span id="bomb-count">BOM × 2</span>
+        </button>
         <button id="fire-button" class="button button-fire"><span aria-hidden="true">ϟ</span> BẮN</button>
+        <div id="pause-panel" class="result-panel" hidden>
+          <div class="result-card">
+            <span class="result-icon" aria-hidden="true">Ⅱ</span>
+            <h2>TẠM NGHỈ</h2>
+            <button id="resume-button" class="button button-primary">TIẾP TỤC BAY</button>
+            <button id="pause-home-button" class="button button-text">Về màn hình chính</button>
+          </div>
+        </div>
         <div id="result-panel" class="result-panel" hidden>
           <div class="result-card">
             <span id="result-icon" class="result-icon" aria-hidden="true">✦</span>
-            <h2 id="result-title">CHIẾN THẮNG!</h2>
+            <p id="result-eyebrow" class="result-eyebrow">NHIỆM VỤ KẾT THÚC</p>
+            <h2 id="result-title">PHI ĐỘI BỊ HẠ</h2>
+            <p id="result-score" class="result-score">000000</p>
             <button id="retry-button" class="button button-primary">BAY LẠI</button>
             <button id="home-button" class="button button-text">Về màn hình chính</button>
           </div>

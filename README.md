@@ -1,35 +1,46 @@
 # Không Chiến
 
-Game máy bay chạy trực tiếp trên trình duyệt bằng HTML, CSS và JavaScript thuần.
-Trang game không cần Flutter, cài package hay tải mô hình 3D lớn; hiện là game
-2D giả lập chiều sâu, chơi đơn với đối thủ máy.
+Game bắn gà arcade chạy trên web bằng HTML, CSS và JavaScript thuần. Giao diện
+chiến đấu vẽ bằng Canvas 2D với phối cảnh, lớp cảnh, ánh sáng và máy bay/gà
+low-poly để tạo cảm giác 2.5D mà không cần tải mô hình nặng.
+
+## Chế độ chơi
+
+- **Chiến dịch offline:** chơi một mình, đàn gà xuất hiện theo đợt, độ khó tăng
+  dần; bắn trứng, né đạn, dùng bom, nhặt vật phẩm, tạo combo và lưu kỷ lục trên
+  thiết bị.
+- **Đấu trường online:** đang hiển thị là sắp ra mắt. Chế độ này cần backend
+  realtime riêng; GitHub Pages chỉ lưu trữ giao diện web.
+
+Sau lần mở trang đầu tiên khi có mạng, Service Worker lưu bộ giao diện để có thể
+mở và chơi chiến dịch offline trên cùng trình duyệt.
 
 ## Chạy trên máy
-
-Mở terminal tại thư mục dự án và chạy:
 
 ```sh
 python3 -m http.server 8000 --directory web
 ```
 
-Sau đó mở `http://localhost:8000`.
+Mở `http://localhost:8000`. Dùng WASD/phím mũi tên để bay, giữ Space để bắn,
+`P` hoặc `Esc` để tạm dừng. Trên điện thoại, kéo trong vùng chơi và giữ nút
+**BẮN**; nút **BOM** dọn đàn gà hiện tại.
 
-## Đưa lên GitHub Pages
+## GitHub Pages
 
-Workflow `.github/workflows/pages.yml` tự đăng nội dung thư mục `web/` lên
-GitHub Pages sau mỗi lần push lên nhánh `main`. Trong GitHub, vào **Settings →
-Pages** và chọn **Source: GitHub Actions**. Sau khi workflow chạy thành công,
-game sẽ có tại:
+Workflow `.github/workflows/pages.yml` triển khai thư mục `web/` sau mỗi lần
+push lên `main`. Trong GitHub, chọn **Settings → Pages → Source: GitHub
+Actions**. Link game sau khi triển khai:
 
 `https://hazloi.github.io/my_first_app/`
 
-## Điều khiển
+## Tham khảo thiết kế
 
-- Máy tính: WASD hoặc phím mũi tên để bay; giữ Space để bắn.
-- Điện thoại: kéo trong vùng chơi để điều khiển; giữ nút **BẮN** để khai hỏa.
+Các ý tưởng về đợt địch tăng độ khó, nâng cấp, điểm cao và hỗ trợ nhiều người
+được tham khảo ở mức khái quát; không sử dụng mã nguồn hay hình ảnh của game
+khác:
 
-## Giới hạn hiện tại
-
-GitHub Pages chỉ phục vụ tệp tĩnh nên bản này chưa ghép trận hoặc chơi online
-hai người. Multiplayer cần thêm một dịch vụ realtime riêng để tạo phòng và
-đồng bộ vị trí, đạn, va chạm. Bản hiện tại chỉ còn source web và workflow Pages.
+- [Chicken Invaders 1 — trang chính thức](https://www.interactionstudios.com/chickeninvaders.php)
+- [Chicken Invaders 4 — tính năng trên Steam](https://store.steampowered.com/app/301300/Chicken_Invaders_4_Ultimate_Omelette/)
+- [MDN: Canvas API](https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API)
+- [MDN: Pointer Events](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events)
+- [MDN: WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API)
