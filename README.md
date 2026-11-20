@@ -25,6 +25,13 @@ Mở `http://localhost:8000`. Dùng WASD/phím mũi tên để bay, giữ Space 
 `P` hoặc `Esc` để tạm dừng. Trên điện thoại, kéo trong vùng chơi và giữ nút
 **BẮN**; nút **BOM** dọn đàn gà hiện tại.
 
+## ZingPlay — Binh Xập Xám
+
+Game bàn 2–4 người chơi qua WebSocket, với máy chủ Node.js riêng và giao diện
+được phục vụ tại `web/zingplay/`. Hướng dẫn chạy máy chủ, luật MVP và triển khai
+được ghi trong [`api-zingplay/README.md`](./api-zingplay/README.md). GitHub Pages chỉ
+triển khai giao diện; cần triển khai máy chủ WebSocket riêng để chơi online.
+
 ## GitHub Pages
 
 Workflow `.github/workflows/pages.yml` triển khai thư mục `web/` sau mỗi lần

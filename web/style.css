@@ -229,6 +229,21 @@ h1 {
   color: var(--coral);
 }
 
+.other-game-link {
+  display: inline-block;
+  margin-top: 13px;
+  color: var(--mint);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-decoration: none;
+}
+
+.other-game-link:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
 .preview {
   position: relative;
   min-height: 440px;

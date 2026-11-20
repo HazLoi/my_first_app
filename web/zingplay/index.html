@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#10251d">
+    <meta
+      name="description"
+      content="Binh Xập Xám online cùng bạn bè, chơi vui không cược."
+    >
+    <link rel="stylesheet" href="style.css">
+    <title>ZingPlay — Binh Xập Xám</title>
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="ZingPlay Binh Xập Xám">
+          <span class="brand-mark" aria-hidden="true">♠</span>
+          <span>ZING<span class="brand-accent">PLAY</span><small>BINH XẬP XÁM</small></span>
+        </a>
+        <span class="play-note">CHƠI VUI · KHÔNG CƯỢC</span>
+      </header>
+
+      <section id="auth-panel" class="panel auth-panel">
+        <div class="intro">
+          <p class="eyebrow">TÀI KHOẢN ZINGPLAY</p>
+          <h1>Vào bàn,<br><em>gặp bạn.</em></h1>
+          <p class="lead">
+            Đăng nhập hoặc tạo tài khoản bằng số điện thoại để tạo phòng và chơi
+            Binh Xập Xám realtime cùng bạn bè.
+          </p>
+        </div>
+        <form id="auth-form" class="auth-form">
+          <label>
+            Số điện thoại
+            <input
+              id="auth-phone"
+              name="phone"
+              type="tel"
+              inputmode="tel"
+              autocomplete="tel"
+              placeholder="0912 345 678"
+              maxlength="24"
+              required
+            >
+          </label>
+          <label>
+            Mật khẩu
+            <input
+              id="auth-password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              minlength="8"
+              maxlength="128"
+              required
+            >
+          </label>
+          <label id="confirm-password-field" hidden>
+            Nhập lại mật khẩu
+            <input
+              id="auth-password-confirm"
+              name="passwordConfirm"
+              type="password"
+              autocomplete="new-password"
+              minlength="8"
+              maxlength="128"
+            >
+          </label>
+          <label class="api-address">
+            Địa chỉ API
+            <input id="api-url" name="api" type="url" spellcheck="false" required>
+          </label>
+          <button id="auth-submit" class="button button-primary" type="submit">ĐĂNG NHẬP</button>
+          <button id="auth-toggle" class="text-button" type="button">Chưa có tài khoản? Đăng ký</button>
+          <p id="auth-status" class="status" role="status" aria-live="polite">
+            Đăng nhập để bắt đầu chơi.
+          </p>
+        </form>
+        <p class="auth-note">Mật khẩu được bảo vệ trên máy chủ. Không dùng chung mật khẩu với dịch vụ khác.</p>
+      </section>
+
+      <section id="connection-panel" class="panel setup-panel" hidden>
+        <div class="account-bar">
+          <span>Đã đăng nhập: <strong id="account-name"></strong></span>
+          <button id="logout-button" class="text-button" type="button">ĐĂNG XUẤT</button>
+        </div>
+        <div class="intro">
+          <p class="eyebrow">BÀN BẠN BÈ · 2–4 NGƯỜI</p>
+          <h1>Xếp bài,<br><em>đọ chi.</em></h1>
+          <p class="lead">
+            Mỗi người nhận 13 lá, xếp thành chi đầu 3 lá, chi giữa và chi cuối
+            mỗi chi 5 lá. Xếp đúng thứ tự rồi so bài với bạn bè.
+          </p>
+        </div>
+        <form id="setup-form" class="setup-form">
+          <label>
+            Địa chỉ máy chủ WebSocket
+            <input
+              id="server-url"
+              name="server"
+              type="url"
+              spellcheck="false"
+              required
+            >
+          </label>
+          <div class="room-actions">
+            <button id="create-button" class="button button-primary" type="button">
+              TẠO PHÒNG
+            </button>
+            <div class="join-row">
+              <input
+                id="room-code-input"
+                aria-label="Mã phòng"
+                maxlength="5"
+                placeholder="MÃ PHÒNG"
+                autocomplete="off"
+              >
+              <button id="join-button" class="button button-secondary" type="button">
+                VÀO PHÒNG
+              </button>
+            </div>
+          </div>
+          <p id="connection-status" class="status" role="status" aria-live="polite">
+            Đang chờ kết nối.
+          </p>
+        </form>
+        <aside class="rules-note">
+          <strong>Luật xếp bài</strong>
+          <span>Chi cuối mạnh hơn hoặc bằng chi giữa; chi giữa mạnh hơn hoặc bằng chi đầu.</span>
+          <span>So từng chi giữa hai người: thắng chi được 1 điểm, thắng cả 3 chi được thêm 3 điểm.</span>
+        </aside>
+      </section>
+
+      <section id="room-panel" class="panel room-panel" hidden>
+        <div class="room-heading">
+          <div>
+            <p class="eyebrow">PHÒNG BẠN BÈ</p>
+            <h1>Mã phòng <span id="room-code" class="room-code"></span></h1>
+            <p id="room-message" class="lead"></p>
+          </div>
+          <button id="leave-button" class="button button-secondary" type="button">RỜI PHÒNG</button>
+        </div>
+        <div class="room-content">
+          <div>
+            <h2>Người chơi <span id="player-count"></span></h2>
+            <ol id="player-list" class="player-list"></ol>
+          </div>
+          <div class="room-invite">
+            <p>Gửi mã phòng cho bạn bè. Cần ít nhất 2 người để bắt đầu.</p>
+            <button id="start-button" class="button button-primary" type="button" disabled>
+              CHIA BÀI
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section id="game-panel" class="panel game-panel" hidden>
+        <div class="game-heading">
+          <div>
+            <p class="eyebrow">PHÒNG <span id="game-room-code"></span></p>
+            <h1>Xếp 13 lá bài</h1>
+          </div>
+          <p id="game-status" class="status" role="status" aria-live="polite"></p>
+        </div>
+        <div id="opponent-list" class="opponent-list"></div>
+        <div class="arrangement">
+          <section class="chi chi-back" aria-labelledby="back-title">
+            <div class="chi-heading"><h2 id="back-title">CHI CUỐI</h2><span>5 lá · mạnh nhất</span></div>
+            <div id="back-cards" class="chi-cards" data-pile="back"></div>
+          </section>
+          <section class="chi chi-middle" aria-labelledby="middle-title">
+            <div class="chi-heading"><h2 id="middle-title">CHI GIỮA</h2><span>5 lá</span></div>
+            <div id="middle-cards" class="chi-cards" data-pile="middle"></div>
+          </section>
+          <section class="chi chi-front" aria-labelledby="front-title">
+            <div class="chi-heading"><h2 id="front-title">CHI ĐẦU</h2><span>3 lá · yếu nhất</span></div>
+            <div id="front-cards" class="chi-cards" data-pile="front"></div>
+          </section>
+        </div>
+        <div class="hand-heading">
+          <h2>Bài trên tay <span id="hand-count"></span></h2>
+          <p>Chọn một lá, rồi chọn chi muốn xếp vào. Chọn lá trong chi để lấy ra.</p>
+        </div>
+        <div id="hand-cards" class="hand-cards" aria-label="Bài trên tay"></div>
+        <div class="game-actions">
+          <p id="arrangement-error" class="error" role="alert"></p>
+          <button id="submit-button" class="button button-primary" type="button">CHỐT BÀI</button>
+        </div>
+        <section id="results-panel" class="results-panel" hidden>
+          <p class="eyebrow">KẾT QUẢ VÁN</p>
+          <h2>So bài</h2>
+          <div id="results-content"></div>
+          <p class="score-note">Điểm chỉ dùng để so sánh trong ván này; không có tiền cược hay quy đổi.</p>
+        </section>
+      </section>
+      <footer>Chơi giải trí cùng bạn bè. Không có cược, tiền ảo hay quy đổi phần thưởng.</footer>
+    </main>
+    <script src="game.js" defer></script>
+  </body>
+</html>
