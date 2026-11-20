@@ -17,7 +17,7 @@ export DB_NAME=zingplay
 export DB_USER=zingplay
 export DB_PASSWORD='your-local-password'
 export ALLOWED_ORIGINS=http://localhost:8000
-cd api-zingplay
+cd api_zingplay
 npm install
 npm start
 ```
@@ -41,25 +41,28 @@ Các endpoint có trong `server/index.js`:
 - `POST /api/auth/register` và `POST /api/auth/login` nhận `{ "phone": "...", "password": "..." }`.
 - `GET /api/auth/me` xác minh header `Authorization: Bearer <token>`.
 - `POST /api/auth/logout` thu hồi phiên đăng nhập.
+- `GET /api/matches` trả tối đa 50 ván hoàn thành gần nhất của người dùng.
 - `GET /api/health` kiểm tra API và kết nối MySQL.
 
 Số Việt Nam dạng `09...` được chuẩn hóa sang `+84...`. Mật khẩu dài từ 8 đến
 128 ký tự và được băm bằng scrypt. Đăng nhập dùng mật khẩu, chưa tích hợp SMS
 OTP. Phiên bearer ngẫu nhiên hết hạn sau 7 ngày; chỉ hash của token được lưu
-trong database.
+trong database. Sau khi tất cả người chơi chốt bài, kết quả và các chi được
+lưu giao dịch vào `matches` và `match_players`; `GET /api/matches` chỉ trả lịch
+sử của tài khoản đang đăng nhập.
 
 ## Đưa lên máy chủ
 
-Tải folder `api-zingplay/` lên máy chủ có Node.js 20 trở lên và MySQL. Chạy
+Tải folder `api_zingplay/` lên máy chủ có Node.js 20 trở lên và MySQL. Chạy
 [`schema.sql`](./schema.sql) trong database game, đặt các biến môi trường
 `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `PORT` và
 `ALLOWED_ORIGINS`, rồi chạy `npm ci && npm start`. Dùng reverse proxy TLS để
 chuyển `/api/` và WebSocket về cổng nội bộ `8787`. Hướng dẫn từng bước và mẫu
 Nginx có trong [`HUONG_DAN_KET_NOI_DATABASE_GAME_ONLINE.md`](../HUONG_DAN_KET_NOI_DATABASE_GAME_ONLINE.md).
 
-Phòng và ván nằm trong bộ nhớ; tài khoản và phiên nằm trong MySQL. Không thể
-chạy nhiều tiến trình backend độc lập mà không bổ sung kho trạng thái realtime
-chung.
+Phòng đang chờ và ván chưa hoàn thành nằm trong bộ nhớ; tài khoản, phiên và ván
+đã hoàn thành nằm trong MySQL. Không thể chạy nhiều tiến trình backend độc lập
+mà không bổ sung kho trạng thái realtime chung.
 
 ## Luật MVP
 

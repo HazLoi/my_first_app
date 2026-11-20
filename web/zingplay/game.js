@@ -244,6 +244,7 @@
       state.selectedCard = null;
       state.submitted = false;
       $("#results-panel").hidden = true;
+      $("#history-save-status").textContent = "";
       connectionPanel.hidden = true;
       roomPanel.hidden = true;
       gamePanel.hidden = false;
@@ -264,6 +265,11 @@
       state.submitted = true;
       renderGame();
       renderResults(message.results);
+      const historyStatus = $("#history-save-status");
+      historyStatus.textContent = message.historySaved
+        ? "Kết quả ván đã được lưu vào lịch sử."
+        : "Ván đã kết thúc nhưng chưa lưu được lịch sử. Hãy báo quản trị máy chủ.";
+      historyStatus.classList.toggle("error", !message.historySaved);
     }
     if (message.type === "left") {
       state.socket?.close();

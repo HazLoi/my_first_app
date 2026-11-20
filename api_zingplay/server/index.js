@@ -92,6 +92,10 @@ function publicUser(row) {
   return { id: row.id, phone: row.phone, displayName: row.display_name };
 }
 
+function parseJsonColumn(value) {
+  return typeof value === "string" ? JSON.parse(value) : value;
+}
+
 async function findSession(token) {
   if (!token) return null;
   const [rows] = await pool.execute(
@@ -136,7 +140,7 @@ async function handleApi(request, response) {
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/api/health" && request.method === "GET") {
     await pool.query("SELECT 1");
-    return jsonResponse(response, 200, { status: "ok", service: "api-zingplay" }, origin);
+    return jsonResponse(response, 200, { status: "ok", service: "api_zingplay" }, origin);
   }
 
   if (url.pathname === "/api/auth/register" && request.method === "POST") {
@@ -205,6 +209,40 @@ async function handleApi(request, response) {
     const user = await findSession(tokenFromRequest(request));
     if (!user) return jsonResponse(response, 401, { error: "Phiên đăng nhập đã hết hạn." }, origin);
     return jsonResponse(response, 200, { user: publicUser(user) }, origin);
+  }
+
+  if (url.pathname === "/api/matches" && request.method === "GET") {
+    const user = await findSession(tokenFromRequest(request));
+    if (!user) return jsonResponse(response, 401, { error: "Phiên đăng nhập đã hết hạn." }, origin);
+    const requestedLimit = url.searchParams.get("limit");
+    const limit = requestedLimit === null ? 20 : Number(requestedLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+      return jsonResponse(response, 400, { error: "limit cần là số nguyên từ 1 đến 50." }, origin);
+    }
+    const [rows] = await pool.execute(
+      `SELECT matches.id, matches.room_code, matches.player_count,
+              matches.started_at, matches.finished_at, match_players.display_name,
+              match_players.points, match_players.hands_json, match_players.chi_results_json
+         FROM matches
+         JOIN match_players ON match_players.match_id = matches.id
+        WHERE match_players.user_id = ?
+        ORDER BY matches.finished_at DESC
+        LIMIT ?`,
+      [user.id, limit],
+    );
+    return jsonResponse(response, 200, {
+      matches: rows.map((match) => ({
+        id: match.id,
+        roomCode: match.room_code,
+        playerCount: match.player_count,
+        startedAt: match.started_at,
+        finishedAt: match.finished_at,
+        displayName: match.display_name,
+        points: match.points,
+        hands: parseJsonColumn(match.hands_json),
+        chiResults: parseJsonColumn(match.chi_results_json),
+      })),
+    }, origin);
   }
 
   if (url.pathname === "/api/auth/logout" && request.method === "POST") {
@@ -302,7 +340,14 @@ function createRoom(socket) {
     started: false,
     finished: false,
   };
-  const player = { id: randomUUID(), name: connection.name, socket, hand: [], arrangement: null };
+  const player = {
+    id: randomUUID(),
+    userId: connection.userId,
+    name: connection.name,
+    socket,
+    hand: [],
+    arrangement: null,
+  };
   room.hostId = player.id;
   room.players.push(player);
   rooms.set(room.code, room);
@@ -318,7 +363,17 @@ function joinRoom(socket, code) {
   if (!room) return error(socket, "Không tìm thấy phòng với mã này.");
   if (room.started || room.finished) return error(socket, "Ván đã bắt đầu; không thể vào phòng lúc này.");
   if (room.players.length >= 4) return error(socket, "Phòng đã đủ 4 người chơi.");
-  const player = { id: randomUUID(), name: connection.name, socket, hand: [], arrangement: null };
+  if (room.players.some((player) => player.userId === connection.userId)) {
+    return error(socket, "Tài khoản này đã có trong phòng.");
+  }
+  const player = {
+    id: randomUUID(),
+    userId: connection.userId,
+    name: connection.name,
+    socket,
+    hand: [],
+    arrangement: null,
+  };
   room.players.push(player);
   connection.roomCode = room.code;
   connection.playerId = player.id;
@@ -334,6 +389,7 @@ function startGame(socket) {
   if (room.players.length < 2) return error(socket, "Cần ít nhất 2 người để bắt đầu.");
 
   const deck = createDeck();
+  room.startedAt = Date.now();
   room.players.forEach((entry, playerIndex) => {
     entry.hand = deck.slice(playerIndex * 13, (playerIndex + 1) * 13);
     entry.arrangement = null;
@@ -343,7 +399,46 @@ function startGame(socket) {
   broadcast(room, { type: "game", room: publicRoom(room) });
 }
 
-function submitArrangement(socket, arrangement) {
+async function persistCompletedMatch(room, results) {
+  const connection = await pool.getConnection();
+  const matchId = randomUUID();
+  const finishedAt = new Date();
+  const resultsByPlayer = new Map(results.map((result) => [result.id, result]));
+  try {
+    await connection.beginTransaction();
+    await connection.execute(
+      `INSERT INTO matches (id, room_code, player_count, started_at, finished_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [matchId, room.code, room.players.length, new Date(room.startedAt), finishedAt],
+    );
+    for (const [seatNumber, player] of room.players.entries()) {
+      const result = resultsByPlayer.get(player.id);
+      if (!result) throw new Error(`Missing result for player ${player.id}`);
+      await connection.execute(
+        `INSERT INTO match_players
+          (match_id, user_id, seat_number, display_name, points, hands_json, chi_results_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          matchId,
+          player.userId,
+          seatNumber + 1,
+          player.name,
+          result.points,
+          JSON.stringify(player.arrangement),
+          JSON.stringify(result.chi),
+        ],
+      );
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+async function submitArrangement(socket, arrangement) {
   const current = roomFor(socket);
   if (!current) return error(socket, "Bạn chưa ở trong phòng.");
   const { room, player } = current;
@@ -356,6 +451,10 @@ function submitArrangement(socket, arrangement) {
 
   if (room.players.every((entry) => entry.arrangement)) {
     room.finished = true;
+    const completedRoom = {
+      ...room,
+      players: room.players.map((entry) => ({ ...entry })),
+    };
     const results = compareResults(
       room.players.map((entry) => ({
         id: entry.id,
@@ -363,7 +462,19 @@ function submitArrangement(socket, arrangement) {
         hands: entry.arrangement,
       })),
     );
-    broadcast(room, { type: "results", room: publicRoom(room), results: { players: results } });
+    let historySaved = true;
+    try {
+      await persistCompletedMatch(completedRoom, results);
+    } catch (saveError) {
+      historySaved = false;
+      console.error("Không lưu được lịch sử ván:", saveError);
+    }
+    broadcast(room, {
+      type: "results",
+      room: publicRoom(room),
+      results: { players: results },
+      historySaved,
+    });
   } else {
     broadcast(room, { type: "game", room: publicRoom(room) });
   }
@@ -417,6 +528,7 @@ function handleMessage(socket, message) {
         return;
       }
       connection.authenticated = true;
+      connection.userId = user.id;
       connection.name = user.display_name;
       clearTimeout(connection.authTimer);
       send(socket, { type: "authenticated", user: publicUser(user) });
@@ -436,7 +548,12 @@ function handleMessage(socket, message) {
     return joinRoom(socket, code);
   }
   if (message.type === "start") return startGame(socket);
-  if (message.type === "submit") return submitArrangement(socket, message.arrangement);
+  if (message.type === "submit") {
+    return submitArrangement(socket, message.arrangement).catch((requestError) => {
+      console.error("Xử lý kết quả ván thất bại:", requestError);
+      error(socket, "Máy chủ không thể lưu kết quả ván. Vui lòng thử lại.");
+    });
+  }
   if (message.type === "leave") {
     leaveRoom(socket);
     send(socket, { type: "left" });

@@ -29,7 +29,7 @@ Mở `http://localhost:8000`. Dùng WASD/phím mũi tên để bay, giữ Space 
 
 Game bàn 2–4 người chơi qua WebSocket, với máy chủ Node.js riêng và giao diện
 được phục vụ tại `web/zingplay/`. Hướng dẫn chạy máy chủ, luật MVP và triển khai
-được ghi trong [`api-zingplay/README.md`](./api-zingplay/README.md). GitHub Pages chỉ
+được ghi trong [`api_zingplay/README.md`](./api_zingplay/README.md). GitHub Pages chỉ
 triển khai giao diện; cần triển khai máy chủ WebSocket riêng để chơi online.
 
 ## GitHub Pages
