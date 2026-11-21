@@ -25,18 +25,39 @@ Mở `http://localhost:8000`. Dùng WASD/phím mũi tên để bay, giữ Space 
 `P` hoặc `Esc` để tạm dừng. Trên điện thoại, kéo trong vùng chơi và giữ nút
 **BẮN**; nút **BOM** dọn đàn gà hiện tại.
 
-## ZingPlay — Binh Xập Xám
+## ZingPlay — Xập Xám (Mậu Binh)
 
-Game bàn 2–4 người chơi qua WebSocket, với máy chủ Node.js riêng và giao diện
-được phục vụ tại `web/zingplay/`. Hướng dẫn chạy máy chủ, luật MVP và triển khai
-được ghi trong [`api_zingplay/README.md`](./api_zingplay/README.md). GitHub Pages chỉ
-triển khai giao diện; cần triển khai máy chủ WebSocket riêng để chơi online.
+Game bài 2–4 người: giao diện React 18 + TypeScript + Vite (bàn 3D bằng
+three.js / @react-three/fiber, HUD bằng TailwindCSS, state bằng Zustand) ở thư
+mục gốc repo (`src/`), backend PHP/MySQL ở `api_zingplay/php/`. Phòng cập nhật
+qua HTTP polling (tùy chọn long-poll), không cần WebSocket hay Node.js trên
+server. Xu là xu ảo, không nạp/rút/quy đổi tiền thật.
 
-## GitHub Pages
+```sh
+npm install
+npm run dev          # VITE_GATEWAY mặc định = mock: chơi với 3 bot, không cần backend
+npm test             # Vitest: game-logic, gateway, vectors đối chiếu PHP
+npm run build        # xuất dist/ để upload lên /zingplay/ (xem DEPLOY.md)
+```
 
-Workflow `.github/workflows/pages.yml` triển khai thư mục `web/` sau mỗi lần
-push lên `main`. Trong GitHub, chọn **Settings → Pages → Source: GitHub
-Actions**. Link game sau khi triển khai:
+- Chọn nguồn dữ liệu bằng `VITE_GATEWAY=mock|polling` (xem `.env.example`).
+  `polling` gọi API PHP (`api_zingplay/README.md`); API chạy cục bộ bằng
+  `php -S 127.0.0.1:8787 -t api_zingplay/php api_zingplay/php/router.php`.
+- Bàn chơi hỗ trợ xếp bài, nộp bài và xem kết quả; chế độ online cần API PHP
+  và MySQL được cấu hình. `mock` chỉ có bot trong trình duyệt. Chat online chưa hỗ trợ.
+- Luật chơi và tham số cấu hình: [`RULES.md`](./RULES.md). PHP là nguồn sự
+  thật; `src/game-logic` chỉ dùng cho giao diện (nhãn bài, kiểm tra lủng, gợi ý,
+  bot ở chế độ mock) và được đối chiếu với PHP qua `tests/vectors.json`.
+- Triển khai cPanel: [`DEPLOY.md`](./DEPLOY.md). Tiến độ: `GAME_PROGRESS.md`.
+- Trang quản trị xu/tài khoản: `admin.html` (copy từ `public/`) — tài khoản có
+  `role = 'admin'`.
+
+## Game Không Chiến trên GitHub Pages
+
+Workflow `.github/workflows/pages.yml` triển khai thư mục `web/` (chỉ game bắn
+gà, ZingPlay không còn nằm ở đây) sau mỗi lần push lên `main`. Trong GitHub,
+chọn **Settings → Pages → Source: GitHub Actions**. Link game sau khi triển
+khai:
 
 `https://hazloi.github.io/my_first_app/`
 

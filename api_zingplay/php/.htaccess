@@ -1,0 +1,11 @@
+Options -Indexes
+DirectoryIndex index.php
+RewriteEngine On
+RewriteRule ^(config|user|room|match|admin_api|tests)(?:/|$) - [F,L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]
+
+<FilesMatch "^(bootstrap|config(\.example)?|router|rules|reset_password)\.php$">
+  Require all denied
+</FilesMatch>

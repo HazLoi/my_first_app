@@ -1,136 +1,185 @@
-# Hướng dẫn triển khai API ZingPlay
+# Hướng dẫn triển khai ZingPlay bằng PHP
 
-Tài liệu này dành riêng cho game Binh Xập Xám trong `web/zingplay/`. Backend Node.js cần được triển khai riêng; GitHub Pages chỉ lưu trữ giao diện tĩnh.
-
-## 1. Cấu trúc và luồng kết nối
-
-```text
-Trình duyệt
-  ├── HTTPS /api/* ───────> api_zingplay ──> MySQL
-  └── WSS ────────────────> api_zingplay (phòng và ván realtime)
-```
-
-- Mã backend có thể tải lên máy chủ nằm trong folder `api_zingplay/`.
-- `schema.sql` tạo các bảng tài khoản, phiên đăng nhập và lịch sử ván hoàn thành.
-- `web/zingplay/` là giao diện game; địa chỉ API mặc định là `https://blastbaal.id.vn/api`, WebSocket mặc định là `wss://blastbaal.id.vn/ws`.
-- Không kết nối MySQL từ trình duyệt. Chỉ backend được cấp thông tin kết nối database.
-
-## 2. API tài khoản
-
-| Method | Đường dẫn | Dùng để |
-| --- | --- | --- |
-| `GET` | `/api/health` | Kiểm tra API và kết nối database |
-| `POST` | `/api/auth/register` | Tạo tài khoản bằng số điện thoại và mật khẩu |
-| `POST` | `/api/auth/login` | Đăng nhập bằng số điện thoại và mật khẩu |
-| `GET` | `/api/auth/me` | Lấy tài khoản của bearer token hiện tại |
-| `POST` | `/api/auth/logout` | Thu hồi phiên đăng nhập hiện tại |
-| `GET` | `/api/matches` | Lịch sử các ván hoàn thành của tài khoản |
-
-Ví dụ đăng ký hoặc đăng nhập:
-
-```http
-POST /api/auth/register
-Content-Type: application/json
-
-{"phone":"0912345678","password":"mat-khau-tu-8-ky-tu"}
-```
-
-Số Việt Nam dạng `09...` được chuẩn hóa sang `+84...`; cũng có thể gửi số dạng quốc tế. Mật khẩu dài 8–128 ký tự. Thành công trả JSON gồm `accessToken`, `expiresAt` và `user`. Gửi token ở header `Authorization: Bearer <accessToken>` cho các API cần đăng nhập và trong tin nhắn xác thực WebSocket đầu tiên.
-
-Đây là đăng nhập **bằng mật khẩu**, không phải OTP: gửi mã SMS cần nhà cung cấp SMS và thông tin xác thực riêng; dự án hiện chưa cấu hình dịch vụ đó, nên việc đăng ký chưa xác minh quyền sở hữu số điện thoại. Mật khẩu được băm bằng scrypt; database chỉ lưu hash token phiên, không lưu token gốc.
-
-## 3. Database `zingplay`
-
-Database này chỉ lưu dữ liệu bền vững; bài đang chia và phòng chờ vẫn nằm trong RAM của Node.js.
-
-| Bảng | Dữ liệu | Lý do |
-| --- | --- | --- |
-| `users` | ID, số điện thoại đã chuẩn hóa, tên hiển thị, salt/hash mật khẩu | Đăng ký và đăng nhập |
-| `sessions` | Hash token, user, thời hạn | Xác thực API và WebSocket, thu hồi khi đăng xuất |
-| `matches` | Mã ván/phòng, số người, thời điểm bắt đầu/kết thúc | Một bản ghi cho mỗi ván hoàn thành |
-| `match_players` | Người chơi trong ván, tên snapshot, điểm, bài đã xếp, kết quả từng chi | Lịch sử; có thể tính bảng xếp hạng từ điểm |
-
-Không cần bảng riêng cho bảng xếp hạng ban đầu: tổng điểm có thể truy vấn từ `match_players`. Chưa cần lưu phòng chờ, WebSocket token nguyên bản, bài đang chơi, bạn bè, vật phẩm hoặc tiền ảo. Ván chưa hoàn thành/hủy không được ghi vào lịch sử; nếu cần khôi phục ván sau khi server restart, cần thiết kế lưu trạng thái realtime riêng.
-
-Tạo database mới:
-
-```sql
-CREATE DATABASE zingplay
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-```
-
-Chạy file schema từ thư mục gốc repo (thay host và tài khoản quản trị theo máy chủ của bạn):
-
-```sh
-mysql --host=DB_HOST --user=DB_ADMIN_USER --password zingplay < api_zingplay/schema.sql
-```
-
-Khi Node.js và MySQL cùng máy, có thể tạo tài khoản chạy ứng dụng riêng (đổi mật khẩu mẫu; nếu backend ở máy khác, thay `localhost` bằng host được phép kết nối):
-
-```sql
-CREATE USER 'zingplay_app'@'localhost' IDENTIFIED BY 'REPLACE_WITH_A_STRONG_SECRET';
-GRANT SELECT, INSERT, UPDATE, DELETE ON zingplay.* TO 'zingplay_app'@'localhost';
-```
-
-Không dùng tài khoản `root` cho ứng dụng. Đưa thông tin kết nối vào cấu hình môi trường của Node.js:
+Backend game dùng **PHP 8.1+ và MySQL**. Không cần chạy Node.js, `npm install`,
+WebSocket, VPS hay tạo subdomain. Hai thư mục trên cùng website được dùng riêng:
 
 ```text
-PORT=8787
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_NAME=zingplay
-DB_USER=<tai-khoan-game>
-DB_PASSWORD=<mat-khau-database>
-ALLOWED_ORIGINS=https://blastbaal.id.vn
+Giao diện game: https://blastbaal.id.vn/zingplay/
+API PHP:        https://blastbaal.id.vn/api_zingplay/
+Database game:  adzuoqpv_zingplay
+
+public_html/
+├── api_zingplay/        API PHP của game này
+└── zingplay/            giao diện game
 ```
 
-`DB_USER` cần quyền `SELECT`, `INSERT`, `UPDATE`, `DELETE` trên các bảng game; người chạy cài đặt schema cần thêm quyền tạo bảng. Thêm origin thật của trang giao diện vào `ALLOWED_ORIGINS`, phân cách bằng dấu phẩy nếu có nhiều origin. Không commit mật khẩu database vào Git và không mở cổng MySQL cho Internet.
+Trình duyệt gửi thao tác lên PHP; PHP kiểm tra luật và ghi trạng thái phòng,
+bài chia, bài chốt và kết quả vào MySQL. Trình duyệt hỏi trạng thái phòng mỗi
+1,2 giây để cập nhật. Với game đánh theo lượt, cách này không cần một tiến trình
+WebSocket chạy nền.
 
-## 4. Tải backend lên máy chủ
+## 1. Kiểm tra cấu hình hosting
 
-Máy chủ cần Node.js 20 trở lên và MySQL. Tải nguyên folder `api_zingplay/` lên máy chủ, cấu hình các biến môi trường ở trên, rồi:
+Trong cPanel, đảm bảo domain chạy **PHP 8.1 trở lên** và bật extension
+**PDO MySQL (`pdo_mysql`)**. Backend Node cũ không còn được giao diện sử dụng.
+
+Lịch sử trao đổi ghi nhận Node.js app `1111Q` đang gắn với URI `/` và cPanel
+báo `Can't acquire lock`. Đừng chạy lại npm hoặc ghi đè ứng dụng đó để triển
+khai PHP. Sau khi cài, nếu URL `/api_zingplay/health` vẫn trả về HTML/404, hãy
+nhờ hosting kiểm tra Passenger của app Node có đang bắt đường dẫn này không.
+Không sửa hoặc ghi đè `.htaccess` gốc của website.
+
+## 2. Cập nhật giao diện game
+
+Tải các file mới nhất từ thư mục `web/zingplay/` lên thư mục hiện có
+`public_html/zingplay/`, ghi đè:
+
+- `index.html`
+- `game.js`
+- `style.css`
+- `admin.html`
+- `admin.js`
+
+Có thể dùng gói `zingplay-web-php-upload.zip` ở thư mục gốc repo (giải nén vào
+`public_html/zingplay/`) và `api_zingplay-php-upload.zip` (giải nén vào
+`public_html/api_zingplay/`). Hai gói này được tạo lại mỗi khi sửa giao diện/API.
+
+## 3. Cài API PHP vào đúng thư mục
+
+Tải nội dung mới nhất của `api_zingplay/php/` vào thư mục hiện có
+`public_html/api_zingplay/` (không tạo thêm thư mục con `php/`).
+
+Sau khi giải nén, cần có:
+
+```text
+public_html/api_zingplay/
+├── .htaccess
+├── index.php
+├── bootstrap.php
+├── rules.php
+├── config/
+│   ├── database.php
+│   └── config.example.php
+├── user/
+│   └── routes.php
+├── room/
+│   └── routes.php
+├── match/
+│   └── routes.php
+├── admin_api/
+│   └── routes.php
+├── reset_password.php
+└── router.php
+```
+
+Trong `public_html/api_zingplay/config/`, sao chép `config.example.php` thành
+`config.php`. Mở `config/config.php` và điền thông tin MySQL do hosting cấp:
+
+```php
+'db_host' => 'localhost',
+'db_port' => 3306,
+'db_name' => 'adzuoqpv_zingplay',
+'db_user' => 'TEN_TAI_KHOAN_DATABASE',
+'db_password' => 'MAT_KHAU_DATABASE',
+```
+
+Chỉ tải hoặc giải nén gói này vào `public_html/api_zingplay/`. Không gửi mật
+khẩu database qua chat và không đưa `config/config.php` lên GitHub. `.htaccess`
+tại `api_zingplay` chặn truy cập trực tiếp thư mục cấu hình và các file xử lý.
+Nếu đã có `public_html/api_zingplay/config.php` từ bản cũ, bạn có thể sao chép
+file đó vào `config/config.php`; khi chưa có file mới, API vẫn dùng file cũ.
+Khi cả hai cùng tồn tại, API ưu tiên file trong `config/`. Gói ZIP không chứa
+`config.php` nên không ghi đè mật khẩu đang có.
+
+`bootstrap.php` nạp mã dùng chung; thư mục `user/` xử lý đăng ký, đăng nhập,
+đăng xuất; `room/` xử lý phòng, `match/` xử lý lịch sử và `admin_api/` xử lý các API quản trị. Địa chỉ API hiện tại
+như `/api_zingplay/auth/login` vẫn được giữ nguyên.
+
+## 4. Tạo bảng cho phòng/ván
+
+Trong cPanel → **phpMyAdmin**, chọn database `adzuoqpv_zingplay`, mở tab
+**Import**, rồi nhập file [`api_zingplay/schema.sql`](api_zingplay/schema.sql).
+File dùng `CREATE TABLE IF NOT EXISTS`: các bảng tài khoản, phiên và lịch sử
+đang có sẽ không bị xóa; hai bảng `game_rooms` và `game_room_players` sẽ được
+tạo để lưu các phòng đang chơi.
+
+`schema.sql` hiện tại cũng bổ sung các cột xu, phòng công khai và realtime còn
+thiếu cho bảng cũ; không cần các file migration cũ không còn trong repo. Hãy sao
+lưu database trước khi nâng cấp. Các phòng cũ vẫn riêng tư; phòng mới chỉ xuất
+hiện ở sảnh khi chủ phòng chọn công khai.
+
+### Cấp quyền admin
+
+Admin không tạo được qua web. Đăng ký tài khoản bình thường trên game, rồi chạy
+trong phpMyAdmin (thay bằng số điện thoại của bạn, dạng `+84...`):
+
+```sql
+UPDATE users SET role = 'admin' WHERE phone = '+84912345678';
+```
+
+Đăng nhập lại, trang game sẽ có liên kết **QUẢN TRỊ** tới `/zingplay/admin.html`:
+xem thống kê, tìm tài khoản, cộng/trừ xu, khóa/mở khóa, xem sổ xu và ván gần đây.
+
+Tài khoản MySQL của PHP cần quyền `SELECT`, `INSERT`, `UPDATE`, `DELETE` trên
+database game. Chỉ tài khoản quản trị dùng để import schema mới cần quyền tạo
+bảng.
+
+## 5. Kiểm tra API
+
+Mở:
+
+```text
+https://blastbaal.id.vn/api_zingplay/health
+```
+
+Kết quả mong đợi:
+
+```json
+{"status":"ok","service":"api_zingplay_php","database":"ok"}
+```
+
+Nếu thấy lỗi JSON “Thiếu `config/config.php`”, kiểm tra tên và vị trí file config.
+Nếu có lỗi database, kiểm tra thông tin đăng nhập, host và quyền của database
+user. Nếu đường dẫn trả về trang HTML/404, kiểm tra `.htaccess` trong
+`public_html/api_zingplay/` và hỏi hosting về Passenger; đừng đổi đường dẫn
+`/api_zingplay`. Nếu hosting trả về trang kiểm tra truy cập thay vì JSON, nhờ
+hosting cho phép các yêu cầu API đi qua lớp kiểm tra đó.
+
+Nếu đăng ký báo thiếu bảng database, nhập `schema.sql` theo mục 4. Nếu báo
+không thể truy cập database hoặc thiếu PDO MySQL, kiểm tra quyền tài khoản
+database và extension PHP tương ứng. Thông báo “cấu trúc bảng không khớp”
+cần được quản trị viên kiểm tra trước khi thay đổi các bảng đang có dữ liệu.
+
+Nếu nút đăng ký bị vô hiệu hóa và trang báo không tải được chức năng đăng nhập,
+kiểm tra `game.js` đã được tải đúng vào `public_html/zingplay/`, không bị trả
+về trang HTML hay bị chặn bởi trình duyệt/hosting, rồi tải lại trang. Không
+nhập lại mật khẩu vào URL. Nếu mật khẩu từng xuất hiện trên URL hoặc được chia
+sẻ, hãy đổi mật khẩu đó và các tài khoản khác dùng chung mật khẩu.
+
+## 6. Chơi thử
+
+Mở `https://blastbaal.id.vn/zingplay/`, tạo tài khoản bằng số điện thoại và
+mật khẩu, rồi mở cửa sổ riêng tư hoặc trình duyệt khác để đăng nhập tài khoản
+thứ hai. Tạo phòng, nhập mã phòng ở cửa sổ kia, chủ phòng bấm **Chia bài**.
+Phòng và ván chưa hoàn tất nay được lưu trong MySQL.
+
+Đăng ký hiện dùng mật khẩu, **chưa có SMS OTP** để xác minh quyền sở hữu số
+điện thoại. Mật khẩu không được để trống, tối đa 128 byte; mật khẩu ngắn dễ bị
+đoán nên nên dùng mật khẩu dài và riêng cho game. Tài khoản mới nhận 10.000 xu ảo;
+xu chỉ dùng trong game, không nạp, rút hay quy đổi thành tiền thật.
+
+## 7. Tài khoản tạo bằng backend Node cũ
+
+Backend Node trước đây băm mật khẩu bằng scrypt; PHP không thể xác minh các
+hash đó bằng `password_verify()`. Dữ liệu tài khoản và lịch sử cũ vẫn được giữ,
+nhưng tài khoản có hash Node cần quản trị viên đặt lại mật khẩu một lần bằng
+Terminal của hosting:
 
 ```sh
-cd api_zingplay
-npm ci
-npm start
+cd /home/adzuoqpv/public_html/api_zingplay
+php reset_password.php +84XXXXXXXXX
 ```
 
-Giữ tiến trình Node chạy bằng process manager phù hợp với máy chủ. Backend lắng nghe cổng nội bộ `8787`; không cần mở cổng này trực tiếp ra Internet nếu đã có reverse proxy HTTPS.
-
-Ví dụ cấu hình Nginx cho cùng domain:
-
-```nginx
-location /api/ {
-    proxy_pass http://127.0.0.1:8787;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-}
-
-location /ws {
-    proxy_pass http://127.0.0.1:8787;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_read_timeout 3600s;
-}
-```
-
-Cấu hình chứng chỉ TLS cho domain ở reverse proxy và tiếp tục phục vụ giao diện web tại `location /` như hiện tại. Khi đó trình duyệt dùng HTTPS và WSS; không dùng `ws://` hoặc HTTP không mã hóa trên Internet. Nếu trang giao diện nằm ở domain khác, thêm chính xác origin HTTPS của trang đó vào `ALLOWED_ORIGINS`.
-
-## 5. Kiểm tra sau triển khai
-
-```sh
-curl https://blastbaal.id.vn/api/health
-```
-
-Kết quả bình thường là JSON có `"status":"ok"`. Sau đó mở trang game, đăng ký bằng số điện thoại, đăng nhập, tạo phòng và vào phòng bằng một trình duyệt khác. API và phòng realtime cùng chạy trên một backend; không cần thêm dịch vụ Node thứ hai.
-
-## 6. Giới hạn hiện tại
-
-- Phòng và ván đang chơi nằm trong bộ nhớ; chúng mất khi Node khởi động lại và không được chia sẻ giữa nhiều tiến trình backend.
-- Tài khoản, phiên đăng nhập và kết quả ván hoàn thành được lưu trong MySQL; phiên hết hạn sau 7 ngày.
-- Game không có cược, tiền ảo hay quy đổi phần thưởng.
-- Cấu hình production cần HTTPS/WSS, database riêng, backup, cập nhật dependencies và giới hạn truy cập máy chủ.
+Thay số ví dụ bằng số điện thoại đã đăng ký. Script chỉ chạy từ CLI, yêu cầu
+mật khẩu mới hai lần và thu hồi phiên cũ. Tài khoản mới tạo bằng PHP đăng nhập
+bình thường.

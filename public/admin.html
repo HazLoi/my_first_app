@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <link rel="stylesheet" href="admin.css">
+    <title>ZingPlay — Quản trị</title>
+  </head>
+  <body>
+    <main class="app admin-app">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="Về game">
+          <span class="brand-mark" aria-hidden="true">♠</span>
+          <span>ZING<span class="brand-accent">PLAY</span><small>QUẢN TRỊ</small></span>
+        </a>
+        <a class="text-button" href="./">← VỀ GAME</a>
+      </header>
+      <p id="admin-status" class="status" role="status" aria-live="polite">Đang kiểm tra quyền quản trị…</p>
+
+      <div id="admin-content" hidden>
+        <section class="panel admin-panel">
+          <div class="browser-heading">
+            <div><p class="eyebrow">HỆ THỐNG</p><h2>Tổng quan</h2></div>
+            <button id="admin-refresh" class="button button-secondary" type="button">LÀM MỚI</button>
+          </div>
+          <div id="admin-stats" class="admin-stats"></div>
+        </section>
+
+        <section class="panel admin-panel">
+          <p class="eyebrow">TÀI KHOẢN</p>
+          <h2>Quản lý người chơi</h2>
+          <form id="user-search-form" class="admin-row">
+            <input id="user-search" type="search" placeholder="Tìm theo số điện thoại hoặc tên" maxlength="40" aria-label="Tìm tài khoản">
+            <button class="button button-secondary" type="submit">TÌM</button>
+          </form>
+          <form id="adjust-form" class="admin-row adjust-form">
+            <span id="selected-user" class="selected-user">Chưa chọn tài khoản</span>
+            <input id="adjust-amount" type="number" min="1" step="1" placeholder="Số xu" aria-label="Số xu" required>
+            <input id="adjust-note" type="text" maxlength="200" placeholder="Ghi chú (tuỳ chọn)" aria-label="Ghi chú">
+            <button id="credit-button" class="button button-green" type="button" disabled>CỘNG XU</button>
+            <button id="debit-button" class="button button-gold" type="button" disabled>TRỪ XU</button>
+          </form>
+          <p id="admin-message" class="status" role="status" aria-live="polite"></p>
+          <div class="table-wrap">
+            <table class="results-table">
+              <thead><tr><th>Người chơi</th><th>Điện thoại</th><th>Vai trò</th><th>Trạng thái</th><th>Số dư (xu)</th><th></th></tr></thead>
+              <tbody id="user-rows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel admin-panel">
+          <p class="eyebrow">SỔ XU</p>
+          <h2 id="ledger-title">Giao dịch gần đây</h2>
+          <div class="table-wrap">
+            <table class="results-table">
+              <thead><tr><th>Thời gian (UTC)</th><th>Người chơi</th><th>Loại</th><th>Xu</th><th>Số dư sau</th><th>Ghi chú</th></tr></thead>
+              <tbody id="ledger-rows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel admin-panel">
+          <p class="eyebrow">VÁN GẦN ĐÂY</p>
+          <h2>Lịch sử ván</h2>
+          <div class="table-wrap">
+            <table class="results-table">
+              <thead><tr><th>Kết thúc (UTC)</th><th>Phòng</th><th>Cược</th><th>Kết quả</th></tr></thead>
+              <tbody id="match-rows"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+      <footer>Chỉ tài khoản có quyền admin mới dùng được trang này.</footer>
+    </main>
+    <script src="admin.js" defer></script>
+  </body>
+</html>
