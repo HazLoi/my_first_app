@@ -33,7 +33,7 @@ interface TablePickerProps {
 function TableTile({ table, balance, onJoin }: { table: TableSummary; balance: number; onJoin(table: TableSummary): void }) {
   const kind = tableKind(table);
   const full = !hasFreeSeat(table);
-  const poor = !canAfford(balance, table.stake);
+  const poor = table.scoringMode !== 'points' && !canAfford(balance, table.stake);
   const status = full ? t('lobby.statusFull') : table.phase !== 'waiting' ? t('lobby.statusPlaying') : t('lobby.statusOpen');
   return (
     <button
@@ -42,7 +42,10 @@ function TableTile({ table, balance, onJoin }: { table: TableSummary; balance: n
       onClick={() => onJoin(table)}
       aria-label={`${t('lobby.tableOf', { name: table.hostName })}, ${t('lobby.stakeLine', { stake: table.stake })}`}
     >
-      <span className="tp-name">{t('lobby.tableOf', { name: table.hostName })}</span>
+      <span className="tp-name" title={t('lobby.tableOf', { name: table.hostName })}>
+        {t('lobby.tableOf', { name: table.hostName })}
+      </span>
+      <span className="tp-owner">{t('lobby.tableHost', { name: table.hostName })}</span>
       <span className="tp-head">
         <span className="tp-iconcol">
           <span className="tp-icon">
@@ -54,7 +57,7 @@ function TableTile({ table, balance, onJoin }: { table: TableSummary; balance: n
           </span>
         </span>
         <span className="tp-info">
-          <span className="tp-stake">{t('lobby.stakeLine', { stake: formatChips(table.stake) })}</span>
+          <span className="tp-stake">{table.scoringMode === 'points' ? 'Tính điểm' : t('lobby.stakeLine', { stake: formatChips(table.stake) })}</span>
           <span className={`tp-status ${poor ? 'is-poor' : ''}`}>
             {poor ? t('lobby.needCoinsShort', { amount: formatChips(minBalanceFor(table.stake)) }) : status}
           </span>

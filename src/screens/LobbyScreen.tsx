@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { LobbyCard } from '@/components/LobbyCard';
 import { SettingsPanel } from '@/components/SettingsPanel';
@@ -8,6 +8,7 @@ import { CreateTableModal } from '@/components/lobby/CreateTableModal';
 import { FriendIcon, OtherIcon, PickIcon, QuickIcon } from '@/components/lobby/LobbyIcons';
 import { JoinFriendModal } from '@/components/lobby/JoinFriendModal';
 import { LobbyBackground } from '@/components/lobby/LobbyBackground';
+import { MatchHistory } from '@/components/lobby/MatchHistory';
 import { PasswordModal } from '@/components/lobby/PasswordModal';
 import { ProfilePill } from '@/components/lobby/ProfilePill';
 import { SharedCodeModal } from '@/components/lobby/SharedCodeModal';
@@ -15,7 +16,7 @@ import { SideMenu } from '@/components/lobby/SideMenu';
 import { TablePicker } from '@/components/lobby/TablePicker';
 import { useLobbyActions } from '@/components/lobby/useLobbyActions';
 import { hasFreeSeat } from '@/lib/lobbyLogic';
-import { t } from '@/i18n';
+import { formatChips, t } from '@/i18n';
 import { getGame, GAMES, readSelectedGame, saveSelectedGame, type GameId } from '@/config/games';
 import { gateway } from '@/services';
 import { playSound } from '@/services/sound';
@@ -27,6 +28,7 @@ import './lobby.css';
 type View = 'hub' | 'home' | 'tables';
 type ModalState =
   | { type: 'settings' }
+  | { type: 'history' }
   | { type: 'friend' }
   | { type: 'create'; isPublic: boolean }
   | { type: 'password'; table: TableSummary }
@@ -39,6 +41,7 @@ export function LobbyScreen() {
   const navigate = useNavigate();
   const location = useLocation();
   const session = useAuthStore((state) => state.session);
+  const consumeAutoTopupNotice = useAuthStore((state) => state.consumeAutoTopupNotice);
   const logout = useAuthStore((state) => state.logout);
   const topUp = useAuthStore((state) => state.topUp);
   const soundOn = useSettingsStore((state) => state.soundOn);
@@ -48,8 +51,12 @@ export function LobbyScreen() {
   const actions = useLobbyActions(toast, gameType);
 
   const [view, setView] = useState<View>('hub');
+  const hubCards = useRef<HTMLDivElement>(null);
   const [modal, setModal] = useState<ModalState>(null);
   const [topUpBusy, setTopUpBusy] = useState(false);
+  useEffect(() => {
+    if (view === 'hub' && hubCards.current) hubCards.current.scrollLeft = 0;
+  }, [view]);
 
   // Thông báo từ màn bàn (ví dụ bị loại do hết xu) truyền qua location.state.notice.
   useEffect(() => {
@@ -59,6 +66,11 @@ export function LobbyScreen() {
       navigate('/lobby', { replace: true, state: null });
     }
   }, [location.state, navigate, toast]);
+
+  useEffect(() => {
+    const amount = consumeAutoTopupNotice();
+    if (amount !== null) toast(t('lobby.autoTopup', { amount: formatChips(amount) }), 'success');
+  }, [consumeAutoTopupNotice, session?.user.autoTopupAmount, toast]);
 
   const user = session?.user;
   const balance = user?.balance ?? 0;
@@ -150,10 +162,13 @@ export function LobbyScreen() {
         {view === 'tables' ? <span className="lobby-current-game">{currentGame.name}</span> : null}
 
         <ProfilePill user={user} onTopUp={canTopUp ? () => void handleTopUp() : undefined} topUpBusy={topUpBusy} />
+        {(view === 'hub' || view === 'tables') && gateway().kind === 'polling' ? (
+          <button type="button" className="btn lobby-history" onClick={() => setModal({ type: 'history' })}>Lịch sử</button>
+        ) : null}
 
         {view === 'hub' ? (
           <div className="lobby-view" key="hub">
-            <div className="lobby-cards game-hub-cards">
+            <div className="lobby-cards game-hub-cards" ref={hubCards}>
               {GAMES.map((game, index) => (
                 <LobbyCard
                   key={game.id}
@@ -243,7 +258,7 @@ export function LobbyScreen() {
           </div>
         )}
 
-        {view !== 'hub' ? (
+        {view !== 'hub' && actions.hasCurrentTable ? (
           <button type="button" className={`btn btn-gold lobby-return-table lobby-return-table-${view}`}
             disabled={actions.busy} onClick={() => void actions.returnToTable()}>
             {t('lobby.returnToTable')}
@@ -251,6 +266,7 @@ export function LobbyScreen() {
         ) : null}
 
         {modal?.type === 'settings' ? <SettingsPanel onClose={() => setModal(null)} /> : null}
+        {modal?.type === 'history' && session ? <MatchHistory token={session.token} onClose={() => setModal(null)} /> : null}
         {modal?.type === 'friend' ? (
           <JoinFriendModal
             busy={actions.busy}

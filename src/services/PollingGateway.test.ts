@@ -94,7 +94,7 @@ describe('PollingGateway.subscribeTable', () => {
     const stop = track(gateway, 'ABCDE', { onState: (state) => states.push(state) });
     await vi.advanceTimersByTimeAsync(10);
     expect(states).toHaveLength(1);
-    expect(calls[0]!.url).toMatch(/\/rooms\/ABCDE\?game_type=xapxam$/);
+    expect(calls[0]!.url).toMatch(/\/rooms\/ABCDE\?game_type=xapxam&chat_since_id=0$/);
     await vi.advanceTimersByTimeAsync(1000);
     expect(calls[1]!.url).toMatch(/since_version=3/);
     expect(states).toHaveLength(1);
@@ -104,6 +104,14 @@ describe('PollingGateway.subscribeTable', () => {
     expect(states[1]!.version).toBe(4);
     expect(calls[2]!.url).toMatch(/since_version=3/);
     stop();
+  });
+
+  it('giữ chế độ tính điểm khi đọc danh sách bàn', async () => {
+    mockFetch([{ body: { rooms: [{
+      code: 'ABCDE', hostName: 'An', playerCount: 1, stake: 50, scoringMode: 'points',
+    }] } }]);
+    const tables = await new PollingGateway().listTables('tienlen');
+    expect(tables[0]?.scoringMode).toBe('points');
   });
 
   it('lỗi mạng: backoff 1s, 2s, 4s…, hiện reconnecting rồi tự phục hồi', async () => {

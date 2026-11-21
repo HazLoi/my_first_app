@@ -7,6 +7,8 @@ import { ArrangePanel } from '@/components/table/ArrangePanel';
 import { CardFace } from '@/components/table/CardFace';
 import { HudTimer } from '@/components/table/HudTimer';
 import { RevealOverlay } from '@/components/table/RevealOverlay';
+import { RoomChat } from '@/components/table/RoomChat';
+import { useAuthStore } from '@/store/authStore';
 import { Seat } from '@/components/table/Seat';
 import { flatProjection, perspectiveProjection, ProjectionContext, useRevealStage } from '@/components/table/hooks';
 import { assignSeats, CARD_WORLD, seatCountFor, type SlotName } from '@/components/table/layout';
@@ -122,6 +124,7 @@ function History({ onClose }: { onClose: () => void }) {
 }
 
 export function TableScreen() {
+  const userId = useAuthStore((state) => state.session?.user.id ?? '');
   const { id } = useParams<{ id: string }>();
   const code = id?.toUpperCase();
   const navigate = useNavigate();
@@ -137,10 +140,9 @@ export function TableScreen() {
   const arrange = useArrange(table);
   const revealStage = useRevealStage(table);
   const remaining = useCountdown(table?.phaseDeadline ?? null);
-  const [modal, setModal] = useState<'exit' | 'settings' | 'history' | 'results' | 'chat' | null>(null);
+  const [modal, setModal] = useState<'exit' | 'settings' | 'history' | 'results' | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [chat, setChat] = useState('');
   const [hiddenResults, setHiddenResults] = useState<number | null>(null);
   const newestToast = toasts[toasts.length - 1];
 
@@ -200,12 +202,12 @@ export function TableScreen() {
             <button className="btn table-header-button" onClick={() => { setError(''); setModal('exit'); }}>{t('table.exit')}</button>
             <button className="btn table-header-button" onClick={() => setModal('settings')}>{t('common.settings')}</button>
             <button className="btn table-header-button" onClick={() => setModal('history')}>{t('table.history')}</button>
-            {gateway().capabilities.chat ? <button className="btn table-header-button" onClick={() => { setError(''); setModal('chat'); }}>{t('table.chat')}</button> : null}
           </div>
           <div className="table-info glass">
             <strong>{t('table.code', { code: table.code })}</strong>
             <span>{t('table.stake', { stake: formatChips(table.stake) })}</span>
           </div>
+          <RoomChat messages={table.chatMessages ?? []} selfId={userId} onSend={(text) => gateway().sendChat(table.code, text)} />
           {status !== 'online' ? <div className="table-connection" role="status">{t(status === 'offline' ? 'table.offline' : 'table.reconnecting')}</div> : null}
           {seats.map(({ slot, player }) => (
             <Seat key={slot} slot={slot} player={player} isSelf={player?.id === table.selfId} isHost={player?.id === table.hostId}
@@ -260,21 +262,18 @@ export function TableScreen() {
           {error ? <p className="modal-error">{error}</p> : null}
           <div className="table-modal-actions">
             <button className="btn table-modal-button" onClick={() => setModal(null)}>{t('table.exitNo')}</button>
-            <button className="btn btn-orange table-modal-button" disabled={busy} onClick={() => void perform(() => gateway().leaveTable(table.code), () => navigate('/lobby', { replace: true }))}>{t('table.exitYes')}</button>
+            <button className="btn btn-orange table-modal-button" disabled={busy} onClick={() => void perform(
+              () => gateway().leaveTable(table.code),
+              () => {
+                sessionStorage.removeItem('zp_last_table');
+                navigate('/lobby', { replace: true });
+              },
+            )}>{t('table.exitYes')}</button>
           </div>
         </Modal>
       ) : null}
       {!closed && modal === 'settings' ? <SettingsPanel onClose={() => setModal(null)} /> : null}
       {!closed && modal === 'history' ? <History onClose={() => setModal(null)} /> : null}
-      {!closed && modal === 'chat' && table ? (
-        <Modal title={t('table.chat')} onClose={() => setModal(null)}>
-          <form onSubmit={(event) => { event.preventDefault(); const text = chat.trim(); if (text) void perform(() => gateway().sendChat(table.code, text), () => { setChat(''); setModal(null); }); }}>
-            <input className="modal-field" value={chat} onChange={(event) => setChat(event.target.value)} maxLength={80} placeholder={t('table.chatPlaceholder')} aria-label={t('table.chat')} />
-            {error ? <p className="modal-error">{error}</p> : null}
-            <button className="btn btn-gold table-modal-button" disabled={busy || !chat.trim()}>{t('table.chatSend')}</button>
-          </form>
-        </Modal>
-      ) : null}
       {!closed && showResults && table?.results ? <ResultBoard results={table.results} onClose={closeResults} /> : null}
     </Stage>
   );

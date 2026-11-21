@@ -36,6 +36,7 @@ function room_create_options(array $body): array
 {
     $gameType = room_requested_game_type($body['game_type'] ?? null);
     $game = room_game_definition($gameType);
+    $tienlenConfig = $gameType === 'tienlen' ? require __DIR__ . '/../games/tienlen/config.php' : null;
     $isPublic = $body['isPublic'] ?? false;
     if (!is_bool($isPublic)) {
         throw new ApiException(400, 'Chế độ phòng không hợp lệ.');
@@ -56,6 +57,23 @@ function room_create_options(array $body): array
     if ($password !== null && (!is_string($password) || $password === '' || strlen($password) > 32)) {
         throw new ApiException(400, 'Mật khẩu bàn cần từ 1 đến 32 ký tự.');
     }
+    $scoringMode = $body['scoringMode'] ?? ($tienlenConfig['defaultScoringMode'] ?? 'coins');
+    if (!in_array($scoringMode, ['points', 'coins'], true)) {
+        throw new ApiException(400, 'Chế độ tính điểm không hợp lệ.');
+    }
+    $targetScore = $body['targetScore'] ?? ($tienlenConfig['defaultTargetScore'] ?? 20);
+    $targetMin = $tienlenConfig['scoringBounds']['targetMin'] ?? 5;
+    $targetMax = $tienlenConfig['scoringBounds']['targetMax'] ?? 200;
+    if (!is_int($targetScore) || $targetScore < $targetMin || $targetScore > $targetMax) {
+        throw new ApiException(400, 'Điểm đích phải nằm trong khoảng 5 đến 200.');
+    }
+    $scoringConfig = $body['scoringConfig'] ?? null;
+    if ($scoringConfig !== null && !is_array($scoringConfig)) {
+        throw new ApiException(400, 'Cấu hình tính điểm không hợp lệ.');
+    }
+    $scoringConfig = $gameType === 'tienlen'
+        ? room_validate_scoring_config(is_array($scoringConfig) ? $scoringConfig : [])
+        : [];
     return [
         'isPublic' => $isPublic,
         'gameType' => $gameType,
@@ -63,6 +81,102 @@ function room_create_options(array $body): array
         'autoPlay' => $autoPlay,
         'maxPlayers' => $maxPlayers,
         'passwordHash' => $password === null ? null : password_hash($password, PASSWORD_DEFAULT),
+        'scoringMode' => $gameType === 'tienlen' ? $scoringMode : 'coins',
+        'targetScore' => $gameType === 'tienlen' ? $targetScore : 0,
+        'scoringConfig' => $gameType === 'tienlen' ? $scoringConfig : [],
+    ];
+}
+
+function room_validate_scoring_config(array $input): array
+{
+    $defaults = require __DIR__ . '/../games/tienlen/config.php';
+    $bounds = $defaults['scoringBounds'];
+    $allowedKeys = ['rankPoints', 'chopValues', 'chopperGains', 'chopOverMode', 'coverShortfallByEarlierVictims', 'whiteEnabled', 'bonusPerOpponent', 'whiteTypes', 'coldEnabled', 'coldPenalty', 'rottenEnabled'];
+    if (array_diff(array_keys($input), $allowedKeys) !== []) {
+        throw new ApiException(400, 'Cấu hình tính điểm có trường không hợp lệ.');
+    }
+    $rankPoints = $input['rankPoints'] ?? $defaults['defaultRankPoints'];
+    if (!is_array($rankPoints) || array_diff(array_keys($rankPoints), [2, 3, 4]) !== []) {
+        throw new ApiException(400, 'Bảng điểm hạng không hợp lệ.');
+    }
+    $validatedRanks = [];
+    foreach ([2, 3, 4] as $count) {
+        $points = $rankPoints[$count] ?? $defaults['defaultRankPoints'][$count];
+        if (!is_array($points) || count($points) !== $count
+            || count(array_filter($points, 'is_int')) !== $count) {
+            throw new ApiException(400, 'Bảng điểm hạng phải gồm đủ số người tương ứng.');
+        }
+        $validatedRanks[$count] = array_map('intval', array_values($points));
+        foreach ($validatedRanks[$count] as $point) {
+            if ($point < $bounds['pointMin'] || $point > $bounds['pointMax']) throw new ApiException(400, 'Điểm hạng nằm ngoài phạm vi cho phép.');
+        }
+    }
+    $chopValues = $input['chopValues'] ?? $defaults['defaultChopValues'];
+    if (!is_array($chopValues) || array_diff(array_keys($chopValues), ['black_two', 'red_two', 'four', 'pairs_run_3', 'pairs_run_4']) !== []) {
+        throw new ApiException(400, 'Điểm phạt chặt không hợp lệ.');
+    }
+    $validatedChops = [];
+    foreach (['black_two', 'red_two', 'four', 'pairs_run_3', 'pairs_run_4'] as $key) {
+        $value = $chopValues[$key] ?? $defaults['defaultChopValues'][$key];
+        if (!is_int($value) || $value < $bounds['penaltyMin'] || $value > $bounds['penaltyMax']) {
+            throw new ApiException(400, 'Điểm phạt chặt không hợp lệ.');
+        }
+        $validatedChops[$key] = $value;
+    }
+    $chopperGains = $input['chopperGains'] ?? $defaults['chopperGains'];
+    $chopOverMode = $input['chopOverMode'] ?? $defaults['chopOverMode'];
+    if (!in_array($chopOverMode, ['last-pays-all', 'stack'], true)) {
+        throw new ApiException(400, 'Chế độ chặt đè không hợp lệ.');
+    }
+    $coverShortfall = $input['coverShortfallByEarlierVictims'] ?? $defaults['coverShortfallByEarlierVictims'];
+    $whiteEnabled = $input['whiteEnabled'] ?? $defaults['whiteEnabled'];
+    $coldEnabled = $input['coldEnabled'] ?? $defaults['coldEnabled'];
+    $rottenEnabled = $input['rottenEnabled'] ?? $defaults['rottenPointsEnabled'];
+    $bonus = $input['bonusPerOpponent'] ?? $defaults['whiteBonusPerOpponent'];
+    $coldPenalty = $input['coldPenalty'] ?? $defaults['coldPenalty'];
+    foreach ([$chopperGains, $coverShortfall, $whiteEnabled, $coldEnabled, $rottenEnabled] as $flag) {
+        if (!is_bool($flag)) throw new ApiException(400, 'Cờ cấu hình tính điểm phải là boolean.');
+    }
+    if (!is_int($bonus) || $bonus < $bounds['bonusMin'] || $bonus > $bounds['bonusMax']
+        || !is_int($coldPenalty) || $coldPenalty < $bounds['penaltyMin'] || $coldPenalty > $bounds['penaltyMax']) {
+        throw new ApiException(400, 'Điểm phạt/cộng tới trắng không hợp lệ.');
+    }
+    $whiteTypes = $input['whiteTypes'] ?? $defaults['whitePriority'];
+    $knownWhiteTypes = ['dragon', 'four_twos', 'six_pairs', 'five_pairs_run', 'four_threes'];
+    if (!is_array($whiteTypes)) {
+        throw new ApiException(400, 'Danh sách tới trắng không hợp lệ.');
+    }
+    if (array_is_list($whiteTypes)) {
+        if (count(array_filter($whiteTypes, 'is_string')) !== count($whiteTypes)
+            || array_diff($whiteTypes, $knownWhiteTypes) !== []) {
+            throw new ApiException(400, 'Danh sách tới trắng không hợp lệ.');
+        }
+        $typesEnabled = [];
+        foreach ($knownWhiteTypes as $type) {
+            $typesEnabled[$type] = in_array($type, $whiteTypes, true);
+        }
+    } else {
+        if (array_diff(array_keys($whiteTypes), $knownWhiteTypes) !== []
+            || count(array_filter($whiteTypes, 'is_bool')) !== count($whiteTypes)) {
+            throw new ApiException(400, 'Danh sách tới trắng không hợp lệ.');
+        }
+        $typesEnabled = array_fill_keys($knownWhiteTypes, false);
+        foreach ($whiteTypes as $type => $enabled) {
+            $typesEnabled[$type] = $enabled;
+        }
+    }
+    return [
+        'rankPoints' => $validatedRanks,
+        'chopValues' => $validatedChops,
+        'chopperGains' => $chopperGains,
+        'chopOverMode' => $chopOverMode,
+        'coverShortfallByEarlierVictims' => $coverShortfall,
+        'whiteEnabled' => $whiteEnabled,
+        'bonusPerOpponent' => $bonus,
+        'whiteTypes' => $typesEnabled,
+        'coldEnabled' => $coldEnabled,
+        'coldPenalty' => $coldPenalty,
+        'rottenEnabled' => $rottenEnabled,
     ];
 }
 
@@ -78,8 +192,8 @@ function room_create(PDO $pdo, array $user, array $options): string
     $pdo->prepare(
         "INSERT INTO game_rooms
           (code, host_player_id, status, is_public, stake, game_type, auto_play, max_players, password_hash,
-           phase, phase_started_at, version, last_activity)
-         VALUES (?, ?, 'waiting', ?, ?, ?, ?, ?, ?, 'waiting', ?, 1, ?)",
+           phase, phase_started_at, version, last_activity, scoring_mode, target_score, scoring_config)
+         VALUES (?, ?, 'waiting', ?, ?, ?, ?, ?, ?, 'waiting', ?, 1, ?, ?, ?, ?)",
     )->execute([
         $code,
         $playerId,
@@ -91,6 +205,9 @@ function room_create(PDO $pdo, array $user, array $options): string
         $options['passwordHash'],
         $now,
         $now,
+        $options['scoringMode'],
+        $options['targetScore'],
+        zingplay_json($options['scoringConfig']),
     ]);
     $pdo->prepare(
         'INSERT INTO game_room_players
@@ -119,7 +236,9 @@ function room_join(PDO $pdo, array $user, string $code, mixed $password, ?string
         && (!is_string($password) || !password_verify($password, $room['password_hash']))) {
         throw new ApiException(403, 'Sai mật khẩu bàn.');
     }
-    require_stake_balance((int)$user['balance'], (int)$room['stake']);
+    if (($room['game_type'] !== 'tienlen') || (($room['scoring_mode'] ?? 'coins') !== 'points')) {
+        require_stake_balance((int)$user['balance'], (int)$room['stake']);
+    }
     $players = zingplay_lock_players($pdo, $code);
     $maxPlayers = (int)$room['max_players'];
     $ghost = null;
@@ -151,19 +270,23 @@ function room_join(PDO $pdo, array $user, string $code, mixed $password, ?string
     while (in_array($seat, $occupiedSeats, true)) {
         $seat++;
     }
+    $playerId = new_id();
     $pdo->prepare(
         'INSERT INTO game_room_players
           (player_id, room_code, user_id, seat_number, display_name, hand_json, last_seen)
          VALUES (?, ?, ?, ?, ?, ?, ?)',
-    )->execute([new_id(), $code, $user['id'], $seat, $user['display_name'], '[]', $now]);
+    )->execute([$playerId, $code, $user['id'], $seat, $user['display_name'], '[]', $now]);
     $fields = [];
+    if ($activeCount === 0) {
+        $fields['host_player_id'] = $playerId;
+    }
     if ($auto && $room['phase'] === 'waiting' && $activeCount + 1 >= $maxPlayers) {
         $seconds = $room['game_type'] === 'tienlen'
             ? (require __DIR__ . '/../games/tienlen/config.php')['autoStartSeconds']
             : zingplay_phase_seconds('auto_start');
         $fields = ['phase_deadline' => $now + $seconds];
     }
-    zingplay_update_room($pdo, $room, $fields, $now);
+    zingplay_update_room($pdo, $room, $fields + ['empty_since' => null], $now);
 }
 
 function room_leave_auto(PDO $pdo, array &$room, array &$players, int $selfIndex, int $now): void
@@ -196,7 +319,7 @@ function room_leave_auto(PDO $pdo, array &$room, array &$players, int $selfIndex
     array_splice($players, $selfIndex, 1);
     $active = zingplay_active_players($players);
     if ($active === []) {
-        zingplay_delete_room($pdo, $room);
+        zingplay_mark_room_empty($pdo, $room, $now);
         return;
     }
     zingplay_fix_host($pdo, $room, $players, $now);
@@ -205,6 +328,28 @@ function room_leave_auto(PDO $pdo, array &$room, array &$players, int $selfIndex
         $fields = ['phase_deadline' => null];
     }
     zingplay_update_room($pdo, $room, $fields, $now);
+}
+
+function room_leave_stale(PDO $pdo, array &$room, array &$players, int $selfIndex, int $now): void
+{
+    $departed = $players[$selfIndex];
+    if ($room['status'] === 'playing') {
+        zingplay_update_room($pdo, $room, [
+            'status' => 'cancelled',
+            'cancel_message' => $departed['display_name'] . ' đã mất kết nối. Ván bị hủy.',
+            'finished_at' => gmdate('Y-m-d H:i:s', $now),
+        ], $now);
+    }
+    $pdo->prepare('DELETE FROM game_room_players WHERE player_id = ?')->execute([$departed['player_id']]);
+    array_splice($players, $selfIndex, 1);
+    if (zingplay_active_players($players) === []) {
+        zingplay_mark_room_empty($pdo, $room, $now);
+        return;
+    }
+    zingplay_fix_host($pdo, $room, $players, $now);
+    if (($room['empty_since'] ?? null) !== null) {
+        zingplay_update_room($pdo, $room, ['empty_since' => null], $now);
+    }
 }
 
 // Đọc nhẹ trạng thái phòng cho poll: kiểm tra thành viên, đến hạn thì chuyển phase, cập nhật last_seen.
@@ -237,10 +382,8 @@ function room_poll_version(PDO $pdo, array $user, string $code, ?string $gameTyp
         }
         throw new ApiException(403, 'Tài khoản của bạn không thuộc phòng này.');
     }
-    if ($now - (int)$self['last_seen'] >= ZINGPLAY_SEEN_INTERVAL) {
-        $pdo->prepare('UPDATE game_room_players SET last_seen = ? WHERE player_id = ?')
-            ->execute([$now, $self['player_id']]);
-    }
+    $pdo->prepare('UPDATE game_room_players SET last_seen = ? WHERE player_id = ?')
+        ->execute([$now, $self['player_id']]);
     $advanced = $room['game_type'] === 'tienlen'
         ? (new TienLenEngine())->advanceIfDue($pdo, $room + ['code' => $code])
         : zingplay_advance_if_due($pdo, $code, $room);
@@ -257,6 +400,89 @@ function room_poll_version(PDO $pdo, array $user, string $code, ?string $gameTyp
     return (int)$room['version'];
 }
 
+function room_chat_messages(PDO $pdo, string $code, string $userId, int $sinceId): array
+{
+    $member = $pdo->prepare(
+        'SELECT 1 FROM game_room_players WHERE room_code = ? AND user_id = ? AND left_round = 0',
+    );
+    $member->execute([$code, $userId]);
+    if (!$member->fetchColumn()) {
+        throw new ApiException(403, 'Tài khoản của bạn không thuộc phòng này.');
+    }
+    $statement = $pdo->prepare(
+        'SELECT id, user_id, display_name, text, created_at FROM table_chat
+          WHERE table_id = ? AND id > ? ORDER BY id LIMIT 50',
+    );
+    $statement->execute([$code, $sinceId]);
+    return array_map(static fn(array $message): array => [
+        'id' => (int)$message['id'],
+        'userId' => $message['user_id'],
+        'displayName' => $message['display_name'],
+        'text' => $message['text'],
+        'createdAt' => (int)$message['created_at'] * 1000,
+    ], $statement->fetchAll());
+}
+
+function room_chat_send(PDO $pdo, array $user, string $code, array $body): array
+{
+    $rawText = $body['text'] ?? null;
+    if (!is_string($rawText)) {
+        throw new ApiException(400, 'Tin nhắn không hợp lệ.');
+    }
+    $text = trim(strip_tags($rawText));
+    $text = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $text) ?? '';
+    $characters = preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY);
+    if (is_array($characters) && count($characters) > 200) {
+        $text = implode('', array_slice($characters, 0, 200));
+    }
+    if ($text === '') {
+        throw new ApiException(400, 'Tin nhắn không được để trống.');
+    }
+    return zingplay_transaction($pdo, static function () use ($pdo, $user, $code, $text): array {
+        $pdo->exec('DELETE FROM table_chat WHERE table_id NOT IN (SELECT code FROM game_rooms)');
+        $room = zingplay_lock_room($pdo, $code);
+        if ($room === null) {
+            throw new ApiException(404, 'Không tìm thấy phòng với mã này.');
+        }
+        $member = $pdo->prepare(
+            'SELECT player_id, display_name FROM game_room_players
+              WHERE room_code = ? AND user_id = ? AND left_round = 0' . lock_clause($pdo),
+        );
+        $member->execute([$code, $user['id']]);
+        $player = $member->fetch();
+        if (!$player) {
+            throw new ApiException(403, 'Tài khoản của bạn không thuộc phòng này.');
+        }
+        $latest = $pdo->prepare('SELECT created_at FROM table_chat WHERE table_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1');
+        $latest->execute([$code, $user['id']]);
+        $lastSent = $latest->fetchColumn();
+        $now = zingplay_now();
+        if ($lastSent !== false && $now - (int)$lastSent < 1) {
+            throw new ApiException(429, 'Bạn gửi tin nhắn quá nhanh.');
+        }
+        $pdo->prepare(
+            'INSERT INTO table_chat (table_id, user_id, display_name, text, created_at) VALUES (?, ?, ?, ?, ?)',
+        )->execute([$code, $user['id'], $player['display_name'], $text, $now]);
+        $id = (int)$pdo->lastInsertId();
+        $overflow = $pdo->prepare('SELECT id FROM table_chat WHERE table_id = ? ORDER BY id DESC LIMIT 50');
+        $overflow->execute([$code]);
+        $retainedIds = $overflow->fetchAll(PDO::FETCH_COLUMN);
+        if (count($retainedIds) === 50) {
+            $pdo->prepare('DELETE FROM table_chat WHERE table_id = ? AND id < ?')
+                ->execute([$code, min(array_map('intval', $retainedIds))]);
+        }
+        $pdo->prepare('UPDATE game_rooms SET version = version + 1, last_activity = ? WHERE code = ?')
+            ->execute([$now, $code]);
+        return [
+            'id' => $id,
+            'userId' => $user['id'],
+            'displayName' => $player['display_name'],
+            'text' => $text,
+            'createdAt' => $now * 1000,
+        ];
+    });
+}
+
 function handle_room_routes(string $route, string $method, PDO $pdo): void
 {
     if ($route === '/rooms/current' && $method === 'GET') {
@@ -269,7 +495,7 @@ function handle_room_routes(string $route, string $method, PDO $pdo): void
         require_user($pdo);
         $gameType = room_requested_game_type($_GET['game_type'] ?? null);
         $statement = $pdo->prepare(
-            "SELECT r.code, r.stake, r.max_players, r.phase, r.auto_play, r.round_no,
+            "SELECT r.code, r.stake, r.max_players, r.phase, r.status, r.auto_play, r.round_no, r.scoring_mode,
                     (r.password_hash IS NOT NULL) AS has_password, host.display_name AS host_name,
                     (SELECT COUNT(*) FROM game_room_players p
                       WHERE p.room_code = r.code AND p.left_round = 0) AS player_count
@@ -277,15 +503,13 @@ function handle_room_routes(string $route, string $method, PDO $pdo): void
                JOIN game_room_players host ON host.player_id = r.host_player_id
               WHERE r.game_type = ? AND r.is_public = 1
                 AND (r.status = 'waiting' OR (r.status = 'playing' AND r.auto_play = 1))
+                AND (SELECT COUNT(*) FROM game_room_players active
+                      WHERE active.room_code = r.code AND active.left_round = 0) > 0
               ORDER BY r.created_at DESC, r.code
               LIMIT 200",
         );
         $statement->execute([$gameType]);
         $rooms = $statement->fetchAll();
-        $rooms = array_values(array_filter(
-            $rooms,
-            static fn(array $room): bool => (int)$room['player_count'] < (int)$room['max_players'],
-        ));
         respond(200, ['rooms' => array_map(static fn(array $room): array => [
             'code' => $room['code'],
             'hostName' => $room['host_name'],
@@ -293,16 +517,22 @@ function handle_room_routes(string $route, string $method, PDO $pdo): void
             'stake' => (int)$room['stake'],
             'maxPlayers' => (int)$room['max_players'],
             'hasPassword' => (int)$room['has_password'] === 1,
-            'phase' => (int)$room['auto_play'] === 1 ? $room['phase'] : 'waiting',
+            'phase' => (int)$room['auto_play'] === 1
+                ? $room['phase']
+                : (['waiting' => 'waiting', 'playing' => 'arranging', 'finished' => 'summary'][$room['status']] ?? 'waiting'),
             'autoPlay' => (int)$room['auto_play'] === 1,
             'round' => (int)$room['round_no'],
-        ], array_slice($rooms, 0, 100))]);
+        ] + ($gameType === 'tienlen' ? ['scoringMode' => $room['scoring_mode']] : []), array_slice($rooms, 0, 100))]);
     }
 
     if ($route === '/rooms' && $method === 'POST') {
         $user = require_user($pdo);
         $options = room_create_options(json_body());
-        require_stake_balance((int)$user['balance'], $options['stake']);
+        $user['autoTopupAmount'] = ensureMinCoins($pdo, $user['id']);
+        $user['balance'] = user_balance($pdo, $user['id']);
+        if ($options['gameType'] !== 'tienlen' || $options['scoringMode'] !== 'points') {
+            require_stake_balance((int)$user['balance'], $options['stake']);
+        }
         $code = zingplay_transaction($pdo, static function () use ($pdo, $user, $options): string {
             $lockUser = $pdo->prepare('SELECT id FROM users WHERE id = ?' . lock_clause($pdo));
             $lockUser->execute([$user['id']]);
@@ -315,10 +545,14 @@ function handle_room_routes(string $route, string $method, PDO $pdo): void
         $user = require_user($pdo);
         $body = json_body_optional();
         $gameType = room_requested_game_type($body['game_type'] ?? null);
+        $tienlenConfig = $gameType === 'tienlen'
+            ? require __DIR__ . '/../games/tienlen/config.php' : null;
         $stake = $body['stake'] ?? null;
         if ($stake !== null && (!is_int($stake) || !in_array($stake, ZINGPLAY_STAKES, true))) {
             throw new ApiException(400, 'Mức cược không hợp lệ.');
         }
+        $user['autoTopupAmount'] = ensureMinCoins($pdo, $user['id']);
+        $user['balance'] = user_balance($pdo, $user['id']);
         if ($stake === null) {
             foreach (ZINGPLAY_STAKES as $candidate) {
                 if ((int)$user['balance'] >= zingplayMinBalance($candidate)) {
@@ -326,9 +560,14 @@ function handle_room_routes(string $route, string $method, PDO $pdo): void
                     break;
                 }
             }
+            if ($stake === null && $gameType === 'tienlen') {
+                $stake = ZINGPLAY_STAKES[0];
+            }
         }
-        require_stake_balance((int)$user['balance'], $stake ?? ZINGPLAY_STAKES[0]);
-        [$code, $created] = zingplay_transaction($pdo, static function () use ($pdo, $user, $stake, $gameType): array {
+        if ($gameType !== 'tienlen') {
+            require_stake_balance((int)$user['balance'], $stake ?? ZINGPLAY_STAKES[0]);
+        }
+        [$code, $created] = zingplay_transaction($pdo, static function () use ($pdo, $user, $stake, $gameType, $tienlenConfig): array {
             $lockUser = $pdo->prepare('SELECT id FROM users WHERE id = ?' . lock_clause($pdo));
             $lockUser->execute([$user['id']]);
             if (find_active_membership($pdo, $user['id'])) {
@@ -341,6 +580,7 @@ function handle_room_routes(string $route, string $method, PDO $pdo): void
                           WHERE p.room_code = r.code AND p.left_round = 0) AS player_count
                    FROM game_rooms r
                   WHERE r.game_type = ? AND r.auto_play = 1 AND r.is_public = 1 AND r.password_hash IS NULL AND r.stake = ?
+                    AND (r.game_type <> 'tienlen' OR r.scoring_mode = 'points')
                     AND (r.status = 'waiting' OR (r.status = 'playing' AND r.game_type = 'xapxam'))
                   ORDER BY player_count DESC, r.created_at, r.code
                   LIMIT 50",
@@ -364,6 +604,9 @@ function handle_room_routes(string $route, string $method, PDO $pdo): void
                 'autoPlay' => true,
                 'maxPlayers' => 4,
                 'passwordHash' => null,
+                'scoringMode' => $tienlenConfig['defaultScoringMode'] ?? 'coins',
+                'targetScore' => $tienlenConfig['defaultTargetScore'] ?? 0,
+                'scoringConfig' => $gameType === 'tienlen' ? room_validate_scoring_config([]) : [],
             ]), true];
         });
         respond($created ? 201 : 200, room_snapshot($pdo, $user, $code));
@@ -377,6 +620,8 @@ function handle_room_routes(string $route, string $method, PDO $pdo): void
         if (preg_match('/^[A-Z2-9]{5}$/', $code) !== 1) {
             throw new ApiException(400, 'Mã phòng cần có 5 ký tự.');
         }
+        $user['autoTopupAmount'] = ensureMinCoins($pdo, $user['id']);
+        $user['balance'] = user_balance($pdo, $user['id']);
         $password = $body['password'] ?? null;
         $gameType = array_key_exists('game_type', $body)
             ? room_requested_game_type($body['game_type'])
@@ -407,11 +652,17 @@ function handle_room_routes(string $route, string $method, PDO $pdo): void
             }
         }
         $wait = $since !== null && ($_GET['wait'] ?? '') === '1' && zingplay_long_poll_enabled();
+        $chatSinceId = filter_var($_GET['chat_since_id'] ?? '0', FILTER_VALIDATE_INT);
+        if ($chatSinceId === false || $chatSinceId < 0) {
+            throw new ApiException(400, 'chat_since_id cần là số nguyên không âm.');
+        }
         $deadline = microtime(true) + ZINGPLAY_LONG_POLL_SECONDS;
         while (true) {
             $version = room_poll_version($pdo, $user, $code, $gameType);
             if ($since === null || $version !== $since) {
-                respond(200, room_snapshot($pdo, $user, $code));
+                $snapshot = room_snapshot($pdo, $user, $code);
+                $snapshot['chatMessages'] = room_chat_messages($pdo, $code, $user['id'], (int)$chatSinceId);
+                respond(200, $snapshot);
             }
             if (!$wait || microtime(true) >= $deadline) {
                 respond(200, ['changed' => false, 'version' => $version, 'serverTime' => zingplay_now_ms()]);
@@ -420,12 +671,22 @@ function handle_room_routes(string $route, string $method, PDO $pdo): void
         }
     }
 
+    if (preg_match('~^/rooms/([A-Z2-9]{5})/chat$~', $route, $matches) === 1 && $method === 'POST') {
+        $user = require_user($pdo);
+        $message = room_chat_send($pdo, $user, $matches[1], json_body());
+        respond(201, ['message' => $message]);
+    }
+
     if (preg_match('~^/rooms/([A-Z2-9]{5})/(start|submit|action|leave)$~', $route, $matches) === 1
         && $method === 'POST') {
         $user = require_user($pdo);
         $code = $matches[1];
         $action = $matches[2];
         $body = in_array($action, ['submit', 'action'], true) ? json_body() : [];
+        if (in_array($action, ['start', 'action'], true)) {
+            $user['autoTopupAmount'] = ensureMinCoins($pdo, $user['id']);
+            $user['balance'] = user_balance($pdo, $user['id']);
+        }
         if ($action === 'action') {
             $known = $pdo->prepare('SELECT code, game_type, phase_deadline FROM game_rooms WHERE code = ?');
             $known->execute([$code]);
@@ -461,10 +722,16 @@ function handle_room_routes(string $route, string $method, PDO $pdo): void
             if ($room['game_type'] === 'tienlen') {
                 $engine = new TienLenEngine();
                 if ($action === 'start') {
-                    if ($room['status'] !== 'waiting' || $room['host_player_id'] !== $players[$selfIndex]['player_id']) {
-                        throw new ApiException(409, 'Chỉ chủ phòng có thể bắt đầu khi bàn đang chờ.');
+                    $isWaitingStart = $room['status'] === 'waiting';
+                    $isNewMatch = $room['status'] === 'playing'
+                        && $room['phase'] === 'summary'
+                        && ($room['scoring_mode'] ?? 'coins') === 'points'
+                        && (json_decode((string)$room['game_state'], true)['matchEnded'] ?? false);
+                    if ($room['host_player_id'] !== $players[$selfIndex]['player_id']
+                        || (!$isWaitingStart && !$isNewMatch)) {
+                        throw new ApiException(409, 'Chỉ chủ bàn mới có thể bắt đầu ván hoặc trận mới.');
                     }
-                    if (count($players) < 2) {
+                    if (count(zingplay_active_players($players)) < 2) {
                         throw new ApiException(409, 'Cần ít nhất 2 người để bắt đầu.');
                     }
                     $engine->startRound($pdo, $room, $players, $now);
@@ -594,7 +861,7 @@ function handle_room_routes(string $route, string $method, PDO $pdo): void
                     $pdo->prepare('DELETE FROM game_room_players WHERE player_id = ?')->execute([$departedPlayerId]);
                     array_splice($players, $selfIndex, 1);
                     if ($players === []) {
-                        zingplay_delete_room($pdo, $room);
+                        zingplay_mark_room_empty($pdo, $room, $now);
                     } elseif ($room['status'] === 'waiting' && $room['host_player_id'] === $departedPlayerId) {
                         zingplay_update_room($pdo, $room, ['host_player_id' => $players[0]['player_id']], $now);
                     } else {

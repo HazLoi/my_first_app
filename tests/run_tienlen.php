@@ -154,7 +154,7 @@ $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE
 $pdo->exec(zp_sqlite_schema());
 $pdo->exec("INSERT INTO users (id,phone,display_name,password_salt,password_hash,balance) VALUES
     ('u1','1','A','','',1000),('u2','2','B','','',1000)");
-$pdo->exec("INSERT INTO game_rooms (code,host_player_id,game_type,stake) VALUES ('ABCDE','p1','tienlen',50)");
+$pdo->exec("INSERT INTO game_rooms (code,host_player_id,game_type,stake,scoring_mode) VALUES ('ABCDE','p1','tienlen',50,'coins')");
 $pdo->exec("INSERT INTO game_room_players (player_id,room_code,user_id,seat_number,display_name,hand_json) VALUES
     ('p1','ABCDE','u1',1,'A','[]'),('p2','ABCDE','u2',2,'B','[]')");
 $engine = new TienLenEngine();

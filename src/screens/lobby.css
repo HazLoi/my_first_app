@@ -110,12 +110,23 @@
   font-weight: 800;
   color: #ffe08a;
 }
-.game-hub-cards {
-  left: 50%;
+.lobby-cards.game-hub-cards {
+  left: 40px;
+  right: 40px;
   top: 270px;
-  transform: translateX(-50%);
-  gap: 80px;
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: safe center;
+  gap: calc(20px / var(--stage-scale, 1));
+  padding: 8px calc(12px / var(--stage-scale, 1));
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  pointer-events: auto;
 }
+.game-hub-cards .lobby-card { flex: 0 0 clamp(calc(160px / var(--stage-scale, 1)), calc(22vw / var(--stage-scale, 1)), calc(260px / var(--stage-scale, 1))); width: auto; min-width: 0; scroll-snap-align: start; }
+.lobby-cards.game-hub-cards:has(.lobby-card:nth-child(3)) { flex-wrap: nowrap; }
 .game-hub-icon { font-size: 132px; line-height: 1; }
 
 .lobby-profile {
@@ -265,6 +276,16 @@
 .lobby-return-table-home { left: 270px; top: 164px; }
 .lobby-return-table-tables { left: 40px; top: 650px; width: 360px; }
 
+.btn.lobby-history { position: absolute; right: 45px; bottom: 45px; z-index: 4; font-size: 30px; padding: 18px 30px; }
+.match-history { display: flex; flex-direction: column; gap: 18px; min-height: 0; font-size: 28px; color: #fff; }
+.match-history-filters, .match-history-pages { display: flex; gap: 16px; align-items: center; }
+.match-history-filters input, .match-history-filters select { min-width: 0; padding: 12px; font-size: 27px; }
+.match-history-scroll { overflow: auto; max-height: 500px; touch-action: pan-y; }
+.match-history-item { display: flex; flex-direction: column; width: 100%; padding: 18px; text-align: left; color: white; background: #232755; border: 1px solid #6b70a0; font-size: 27px; }
+.match-history table { border-collapse: collapse; width: 100%; }
+.match-history th, .match-history td { border: 1px solid #6b70a0; padding: 12px; text-align: left; white-space: nowrap; }
+.match-history .btn { padding: 12px 20px; font-size: 27px; }
+
 /* ---------- Chọn bàn ---------- */
 .tp-root {
   position: absolute;
@@ -359,20 +380,21 @@
   top: 130px;
   bottom: 0;
   display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(3, minmax(0, 1fr));
-  grid-auto-columns: 370px;
+  grid-auto-flow: row;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  grid-auto-rows: 240px;
   gap: 22px;
   padding: 6px 6px 26px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-x;
+  touch-action: pan-y;
+  scroll-snap-type: y proximity;
   scrollbar-width: thin;
   scrollbar-color: #7c5cff rgba(255, 255, 255, 0.08);
 }
-.tp-grid::-webkit-scrollbar { height: 16px; }
+.tp-grid::-webkit-scrollbar { width: 16px; }
 .tp-grid::-webkit-scrollbar-thumb { background: #7c5cff; border-radius: 8px; }
 .tp-grid::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.08); border-radius: 8px; }
 
@@ -392,6 +414,7 @@
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
   transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
   animation: tp-tile-in 0.3s ease-out backwards;
+  scroll-snap-align: start;
 }
 .tp-tile:hover { transform: translateY(-4px); border-color: #7dd3fc; }
 .tp-tile:active { transform: scale(0.97); }
@@ -420,6 +443,13 @@
   font-size: 32px;
   font-weight: 800;
   color: #fff;
+}
+.tp-owner {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 24px;
+  color: #cbd5ff;
 }
 .tp-stake { white-space: nowrap; font-size: 31px; font-weight: 800; color: #ffd75e; }
 .tp-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 26px; color: #b8c4f5; }
@@ -454,9 +484,9 @@
 }
 .tp-create .tp-name { color: #ffd75e; }
 .tp-empty {
-  grid-row: 1 / span 3;
+  grid-column: 1 / -1;
   align-self: center;
-  width: 640px;
+  width: min(100%, 640px);
   margin: 0;
   padding-left: 20px;
   font-size: 36px;

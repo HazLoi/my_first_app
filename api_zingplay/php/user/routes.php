@@ -83,11 +83,16 @@ function handle_user_routes(string $route, string $method, PDO $pdo): void
             $update = $pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
             $update->execute([password_hash($body['password'], PASSWORD_DEFAULT), $user['id']]);
         }
+        $user['autoTopupAmount'] = ensureMinCoins($pdo, $user['id']);
+        $user['balance'] = user_balance($pdo, $user['id']);
         respond(200, [...create_session($pdo, $user['id']), 'user' => public_user($user)]);
     }
 
     if ($route === '/auth/me' && $method === 'GET') {
-        respond(200, ['user' => public_user(require_user($pdo))]);
+        $user = require_user($pdo);
+        $user['autoTopupAmount'] = ensureMinCoins($pdo, $user['id']);
+        $user['balance'] = user_balance($pdo, $user['id']);
+        respond(200, ['user' => public_user($user)]);
     }
 
     if ($route === '/auth/logout' && $method === 'POST') {

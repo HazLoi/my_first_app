@@ -12,11 +12,13 @@ import {
   type MatchHistoryEntry,
   type Phase,
   type RoundResults,
+  type RoomChatMessage,
   type TablePlayer,
   type TableState,
   type TableSubscription,
   type TableSummary,
   type TienLenState,
+  type TienLenScoringConfig,
   type Unsubscribe,
 } from './types';
 
@@ -53,6 +55,9 @@ interface RawRoom {
   phaseStartedAt?: number;
   phaseDeadline?: number | null;
   round?: number;
+  scoringMode?: 'points' | 'coins';
+  targetScore?: number;
+  scoringConfig?: TienLenScoringConfig;
   players: RawPlayer[];
 }
 
@@ -66,15 +71,19 @@ export interface RawSnapshot {
   arrangement: Record<Pile, Array<Card | string>> | null;
   submitted: boolean;
   balance: number;
+  autoTopupAmount?: number;
   results: (Omit<RoundResults, 'players'> & { players: Partial<PlayerScore>[] }) | null;
+  chatMessages?: RoomChatMessage[];
 }
 
 interface RawTienLenSnapshot extends TienLenState {
   serverTime?: number;
   version?: number;
   changed?: boolean;
+  autoTopupAmount?: number;
   playerId: string;
   room: RawRoom & { deadline: number | null };
+  chatMessages?: RoomChatMessage[];
 }
 type Snapshot = RawSnapshot | RawTienLenSnapshot;
 
@@ -104,10 +113,18 @@ export function normalizeSnapshot(raw: Snapshot, previousVersion = 0): TableStat
       cards: [], arrangement: null, submitted: false,
       balance: players.find((player) => player.id === raw.playerId)?.balance ?? 0,
       results: null, cancelled: Boolean(room.cancelled), cancelMessage: room.cancelMessage,
+      autoTopupAmount: raw.autoTopupAmount,
+      chatMessages: raw.chatMessages ?? [],
       tienlen: {
         cards: raw.cards, turn: raw.turn, table: raw.table, lastPlayer: raw.lastPlayer,
         passed: raw.passed, ranking: raw.ranking, events: raw.events, required: raw.required,
         results: raw.results, chopRules: raw.chopRules, turnSeconds: raw.turnSeconds,
+        scoringMode: room.scoringMode,
+        targetScore: room.targetScore,
+        scoringConfig: room.scoringConfig,
+        matchTotals: raw.matchTotals,
+        matchEnded: raw.matchEnded,
+        matchPlayers: raw.matchPlayers,
       },
     };
   }
@@ -165,14 +182,17 @@ export function normalizeSnapshot(raw: Snapshot, previousVersion = 0): TableStat
     arrangement,
     submitted: Boolean(raw.submitted),
     balance: raw.balance,
+    autoTopupAmount: raw.autoTopupAmount,
     results,
     cancelled: Boolean(room.cancelled),
     cancelMessage: room.cancelMessage,
+    chatMessages: raw.chatMessages ?? [],
   };
 }
 
 class TablePoller {
   version: number | null = null;
+  chatSinceId = 0;
   state: TableState | null = null;
   private failures = 0;
   private status: ConnectionStatus = 'online';
@@ -237,6 +257,14 @@ class TablePoller {
   accept(raw: Snapshot): void {
     if (this.stopped) return;
     const next = normalizeSnapshot(raw, this.version ?? 0);
+    const previousMessages = this.state?.chatMessages ?? [];
+    if (raw.chatMessages) {
+      const merged = new Map(previousMessages.map((message) => [message.id, message]));
+      for (const message of raw.chatMessages) merged.set(message.id, message);
+      next.chatMessages = [...merged.values()].slice(-50);
+    } else {
+      next.chatMessages = previousMessages;
+    }
     if (this.version !== null && next.version < this.version) return;
     if (next.cancelled) {
       this.subscription.onClosed?.('cancelled', next.cancelMessage);
@@ -259,6 +287,7 @@ class TablePoller {
     const query = new URLSearchParams();
     query.set('game_type', this.gameType);
     if (this.version !== null) query.set('since_version', String(this.version));
+    query.set('chat_since_id', String(this.chatSinceId));
     if (LONG_POLL && this.version !== null) query.set('wait', '1');
     const suffix = query.toString() ? `?${query.toString()}` : '';
     try {
@@ -280,6 +309,9 @@ class TablePoller {
         this.schedule(POLL_INTERVAL_MS);
         return;
       }
+      if (data.chatMessages?.length) {
+        this.chatSinceId = Math.max(this.chatSinceId, ...data.chatMessages.map((message) => message.id));
+      }
       this.accept(data);
       this.schedule(LONG_POLL ? 0 : POLL_INTERVAL_MS);
     } catch (error) {
@@ -300,7 +332,7 @@ class TablePoller {
 /** Gateway gọi API PHP hiện có bằng HTTP polling (không WebSocket, không Node trên server). */
 export class PollingGateway implements GameGateway {
   readonly kind = 'polling' as const;
-  readonly capabilities = { chat: false, emoji: false };
+  readonly capabilities = { chat: true, emoji: true };
   private clockOffset = 0;
   private bestRtt = Infinity;
   private pollers = new Map<string, TablePoller>();
@@ -353,6 +385,7 @@ export class PollingGateway implements GameGateway {
         hasPassword?: boolean;
         phase?: Phase;
         round?: number;
+        scoringMode?: 'points' | 'coins';
       }>;
     }>(`/rooms?game_type=${encodeURIComponent(gameType)}`);
     return data.rooms.map((room) => ({
@@ -365,6 +398,7 @@ export class PollingGateway implements GameGateway {
       hasPassword: Boolean(room.hasPassword),
       phase: room.phase ?? 'waiting',
       round: room.round ?? 0,
+      scoringMode: room.scoringMode,
     }));
   }
 
@@ -377,6 +411,9 @@ export class PollingGateway implements GameGateway {
         stake: options.stake,
         maxPlayers: options.maxPlayers,
         autoPlay: true,
+        ...(options.scoringMode ? { scoringMode: options.scoringMode } : {}),
+        ...(options.targetScore ? { targetScore: options.targetScore } : {}),
+        ...(options.scoringConfig ? { scoringConfig: options.scoringConfig } : {}),
         ...(options.password ? { password: options.password } : {}),
       },
     });
@@ -439,12 +476,12 @@ export class PollingGateway implements GameGateway {
     }
   }
 
-  async sendChat(): Promise<void> {
-    throw new GatewayError('Máy chủ chưa hỗ trợ chat.');
+  async sendChat(code: string, text: string): Promise<void> {
+    await this.request(`/rooms/${code}/chat`, { method: 'POST', body: { text } });
   }
 
-  async sendEmoji(): Promise<void> {
-    throw new GatewayError('Máy chủ chưa hỗ trợ biểu cảm.');
+  async sendEmoji(code: string, emoji: string): Promise<void> {
+    await this.sendChat(code, emoji);
   }
 
   async history(limit = 20): Promise<MatchHistoryEntry[]> {

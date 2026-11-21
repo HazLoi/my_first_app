@@ -39,15 +39,28 @@ CREATE TABLE game_rooms (code TEXT PRIMARY KEY, host_player_id TEXT, status TEXT
   results_json TEXT, cancel_message TEXT, auto_play INTEGER NOT NULL DEFAULT 0, max_players INTEGER NOT NULL DEFAULT 4,
   password_hash TEXT, phase TEXT NOT NULL DEFAULT 'waiting', phase_started_at INTEGER NOT NULL DEFAULT 0,
   phase_deadline INTEGER, version INTEGER NOT NULL DEFAULT 0, round_no INTEGER NOT NULL DEFAULT 0, seed TEXT,
-  last_activity INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+  last_activity INTEGER NOT NULL DEFAULT 0, empty_since INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+-- Giai đoạn 3: cấu hình tính điểm/trận Tiến Lên.
+ALTER TABLE game_rooms ADD COLUMN scoring_mode TEXT NOT NULL DEFAULT 'coins';
+ALTER TABLE game_rooms ADD COLUMN target_score INTEGER NOT NULL DEFAULT 20;
+ALTER TABLE game_rooms ADD COLUMN scoring_config TEXT;
 CREATE TABLE game_room_players (player_id TEXT PRIMARY KEY, room_code TEXT REFERENCES game_rooms(code) ON DELETE CASCADE,
   user_id TEXT REFERENCES users(id) ON DELETE CASCADE, seat_number INTEGER, display_name TEXT, hand_json TEXT NOT NULL,
   arrangement_json TEXT, last_seen INTEGER NOT NULL DEFAULT 0, left_round INTEGER NOT NULL DEFAULT 0,
   joined_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE UNIQUE INDEX game_room_players_user_idx ON game_room_players (room_code, user_id);
 CREATE UNIQUE INDEX game_room_players_seat_idx ON game_room_players (room_code, seat_number);
+CREATE TABLE table_chat (id INTEGER PRIMARY KEY AUTOINCREMENT, table_id TEXT NOT NULL REFERENCES game_rooms(code) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, display_name TEXT NOT NULL,
+  text VARCHAR(200) NOT NULL, created_at INTEGER NOT NULL);
+CREATE INDEX table_chat_table_id_idx ON table_chat (table_id, id);
+CREATE TABLE match_history (id TEXT PRIMARY KEY, game_type TEXT NOT NULL, table_name TEXT NOT NULL,
+  target_score INTEGER, status TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT NOT NULL,
+  search_names TEXT NOT NULL, players_json TEXT NOT NULL, rounds_json TEXT NOT NULL);
 CREATE TABLE wallet_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, type TEXT, amount INTEGER,
   balance_after INTEGER, match_id TEXT, admin_id TEXT, note TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE maintenance_meta (id INTEGER PRIMARY KEY, last_room_cleanup INTEGER NOT NULL DEFAULT 0);
+INSERT INTO maintenance_meta (id, last_room_cleanup) VALUES (1, 0);
 SQL;
 }
 

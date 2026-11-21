@@ -90,6 +90,10 @@ CREATE TABLE IF NOT EXISTS game_rooms (
   round_no INT UNSIGNED NOT NULL DEFAULT 0,
   seed CHAR(32) NULL,
   last_activity BIGINT NOT NULL DEFAULT 0,
+  empty_since BIGINT NULL,
+  scoring_mode ENUM('points','coins') NOT NULL DEFAULT 'coins',
+  target_score SMALLINT UNSIGNED NOT NULL DEFAULT 20,
+  scoring_config JSON NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX game_rooms_status_created_idx (status, created_at),
   INDEX game_rooms_game_type_status_idx (game_type, status)
@@ -109,16 +113,44 @@ CREATE TABLE IF NOT EXISTS game_room_players (
   UNIQUE KEY game_room_players_user_idx (room_code, user_id),
   UNIQUE KEY game_room_players_seat_idx (room_code, seat_number),
   INDEX game_room_players_user_room_idx (user_id, room_code),
+  INDEX game_room_players_room_seen_idx (room_code, left_round, last_seen),
   CONSTRAINT game_room_players_room_fk
     FOREIGN KEY (room_code) REFERENCES game_rooms (code) ON DELETE CASCADE,
   CONSTRAINT game_room_players_user_fk
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS table_chat (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  table_id CHAR(5) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  user_id CHAR(36) NOT NULL,
+  display_name VARCHAR(20) NOT NULL,
+  text VARCHAR(200) NOT NULL,
+  created_at BIGINT NOT NULL,
+  INDEX table_chat_table_id_idx (table_id, id),
+  CONSTRAINT table_chat_room_fk FOREIGN KEY (table_id) REFERENCES game_rooms (code) ON DELETE CASCADE,
+  CONSTRAINT table_chat_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS match_history (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  game_type VARCHAR(20) NOT NULL,
+  table_name VARCHAR(80) NOT NULL,
+  target_score INT NULL,
+  status ENUM('finished', 'abandoned') NOT NULL,
+  started_at DATETIME NOT NULL,
+  ended_at DATETIME NOT NULL,
+  search_names TEXT NOT NULL,
+  players_json MEDIUMTEXT NOT NULL,
+  rounds_json MEDIUMTEXT NOT NULL,
+  INDEX match_history_ended_idx (ended_at, id),
+  INDEX match_history_game_ended_idx (game_type, ended_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS wallet_transactions (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   user_id CHAR(36) NOT NULL,
-  type ENUM('admin_credit', 'admin_debit', 'match_result', 'signup_bonus') NOT NULL,
+  type ENUM('admin_credit', 'admin_debit', 'match_result', 'signup_bonus', 'auto_topup') NOT NULL,
   amount BIGINT NOT NULL,
   balance_after BIGINT NOT NULL,
   match_id CHAR(36) NULL,
@@ -130,6 +162,13 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
   CONSTRAINT wallet_transactions_user_fk
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS maintenance_meta (
+  id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+  last_room_cleanup BIGINT NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO maintenance_meta (id, last_room_cleanup) VALUES (1, 0);
 
 -- =====================================================================
 -- BỔ SUNG CỘT cho bảng đã tồn tại từ phiên bản cũ (bỏ qua nếu cột đã có).
@@ -296,6 +335,13 @@ PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @ddl = IF(
   EXISTS (SELECT 1 FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'game_rooms' AND COLUMN_NAME = 'empty_since'),
+  'DO 0',
+  'ALTER TABLE game_rooms ADD COLUMN empty_since BIGINT NULL');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF(
+  EXISTS (SELECT 1 FROM information_schema.COLUMNS
           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'game_room_players' AND COLUMN_NAME = 'last_seen'),
   'DO 0',
   'ALTER TABLE game_room_players ADD COLUMN last_seen BIGINT NOT NULL DEFAULT 0');
@@ -307,6 +353,17 @@ SET @ddl = IF(
   'DO 0',
   'ALTER TABLE game_room_players ADD COLUMN left_round BOOLEAN NOT NULL DEFAULT FALSE');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF(
+  EXISTS (SELECT 1 FROM information_schema.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'game_room_players'
+            AND INDEX_NAME = 'game_room_players_room_seen_idx'),
+  'DO 0',
+  'ALTER TABLE game_room_players ADD INDEX game_room_players_room_seen_idx (room_code, left_round, last_seen)');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+ALTER TABLE wallet_transactions
+  MODIFY COLUMN type ENUM('admin_credit', 'admin_debit', 'match_result', 'signup_bonus', 'auto_topup') NOT NULL;
 
 SET @ddl = IF(
   EXISTS (SELECT 1 FROM information_schema.COLUMNS

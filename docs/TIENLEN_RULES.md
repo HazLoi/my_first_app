@@ -49,5 +49,13 @@
 - Poll dùng `since_version`/`wait` như cũ; request đến hạn mới thúc đẩy trạng thái.
   Bàn tự chơi còn ghế nhận người xem không có bài, tham gia từ ván tiếp theo;
   người rời ván được bot đánh tiếp.
+- Chat được gửi qua `POST /rooms/{code}/chat`; tin mới trả cùng poll trạng thái qua `chat_since_id`,
+  không tạo luồng polling riêng. Cần chạy `sql/005_points_chat_history.sql` để tạo bảng chat.
 - `chopRules` và `turnSeconds` được gửi trong snapshot để giao diện dùng đúng cấu hình server.
 - Kiểm tra luật client: `node tests/run_tienlen_client.mjs` (Node hỗ trợ chạy TypeScript).
+
+## Trợ giúp chọn bài phía client
+
+- `src/game-logic/tienlen-suggest.js` liệt kê và gợi ý các bộ bài hợp lệ; cài đặt nằm trên thiết bị người chơi.
+- Trợ giúp không thay thế xác thực nước đi ở server; mọi nước đi vẫn phải qua `POST /rooms/{code}/action`.
+- Chạy kiểm tra gợi ý: `node tests/run_tienlen_suggest.mjs`.

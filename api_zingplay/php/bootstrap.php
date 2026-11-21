@@ -128,13 +128,17 @@ function server_error_message(Throwable $exception): string
 
 function public_user(array $row): array
 {
-    return [
+    $user = [
         'id' => $row['id'],
         'phone' => $row['phone'],
         'displayName' => $row['display_name'],
         'role' => $row['role'] ?? 'player',
         'balance' => (int)($row['balance'] ?? 0),
     ];
+    if (isset($row['autoTopupAmount'])) {
+        $user['autoTopupAmount'] = (int)$row['autoTopupAmount'];
+    }
+    return $user;
 }
 
 function bearer_token(): ?string
@@ -178,6 +182,23 @@ function require_user(PDO $pdo): array
     return $user;
 }
 
+function gameplay_config(): array
+{
+    static $defaults = null;
+    $defaults ??= require __DIR__ . '/config/gameplay.php';
+    $overrides = zingplay_config()['gameplay'] ?? [];
+    return array_replace($defaults, is_array($overrides) ? $overrides : []);
+}
+
+function gameplay_setting(string $key, int $minimum = 0): int
+{
+    $value = gameplay_config()[$key] ?? null;
+    if (!is_int($value) || $value < $minimum) {
+        throw new LogicException('Cấu hình gameplay ' . $key . ' không hợp lệ.');
+    }
+    return $value;
+}
+
 function lock_clause(PDO $pdo): string
 {
     return $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
@@ -207,6 +228,48 @@ function record_wallet_transaction(
          VALUES (?, ?, ?, ?, ?, ?, ?)',
     );
     $statement->execute([$userId, $type, $amount, $balanceAfter, $matchId, $adminId, $note]);
+}
+
+function ensureMinCoins(PDO $pdo, string $userId): ?int
+{
+    $below = gameplay_setting('auto_topup_below');
+    $target = gameplay_setting('auto_topup_to', 1);
+    if ($target <= $below) {
+        throw new LogicException('Cấu hình xu tự tặng phải lớn hơn ngưỡng tối thiểu.');
+    }
+
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) {
+        $pdo->beginTransaction();
+    }
+    try {
+        $statement = $pdo->prepare('SELECT balance FROM users WHERE id = ?' . lock_clause($pdo));
+        $statement->execute([$userId]);
+        $balance = $statement->fetchColumn();
+        if ($balance === false) {
+            throw new RuntimeException('Không tìm thấy tài khoản khi kiểm tra số dư.');
+        }
+        $balance = (int)$balance;
+        if ($balance >= $below) {
+            if ($ownsTransaction) {
+                $pdo->commit();
+            }
+            return null;
+        }
+
+        $amount = $target - $balance;
+        $pdo->prepare('UPDATE users SET balance = ? WHERE id = ?')->execute([$target, $userId]);
+        record_wallet_transaction($pdo, $userId, 'auto_topup', $amount, $target, null, null, 'Tự tặng xu');
+        if ($ownsTransaction) {
+            $pdo->commit();
+        }
+        return $target;
+    } catch (Throwable $exception) {
+        if ($ownsTransaction && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    }
 }
 
 function require_stake_balance(int $balance, int $stake): void
@@ -243,18 +306,143 @@ function decode_json(?string $value): mixed
 function cleanup_rooms(PDO $pdo): void
 {
     $now = zingplay_now();
-    $pdo->prepare(
-        "DELETE FROM game_rooms
-          WHERE auto_play = 0 AND game_type = 'xapxam'
-            AND ((status = 'finished' AND finished_at < ?) OR (status <> 'finished' AND created_at < ?))",
-    )->execute([gmdate('Y-m-d H:i:s', $now - 600), gmdate('Y-m-d H:i:s', $now - 3 * 3600)]);
-    // Phòng thời gian thực: xóa khi không còn người hoặc không hoạt động quá 30 phút.
-    $pdo->prepare(
-        "DELETE FROM game_rooms
-          WHERE (auto_play = 1 OR game_type = 'tienlen')
-            AND (last_activity < ?
-                 OR NOT EXISTS (SELECT 1 FROM game_room_players p WHERE p.room_code = game_rooms.code))",
-    )->execute([$now - ZINGPLAY_ROOM_IDLE_LIMIT]);
+    $interval = gameplay_setting('room_cleanup_interval_seconds', 1);
+    $batchSize = min(gameplay_setting('room_cleanup_batch_size', 1), 50);
+    $idleSeconds = gameplay_setting('room_player_idle_seconds', 1);
+    $retentionSeconds = gameplay_setting('empty_room_retention_seconds', 1);
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) {
+        $pdo->beginTransaction();
+    }
+
+    try {
+        $meta = $pdo->prepare(
+            'SELECT last_room_cleanup FROM maintenance_meta WHERE id = 1' . lock_clause($pdo),
+        );
+        $meta->execute();
+        $lastCleanup = $meta->fetchColumn();
+        if ($lastCleanup === false) {
+            throw new RuntimeException('Thiếu dòng khóa bảo trì maintenance_meta.');
+        }
+        if ($now - (int)$lastCleanup < $interval) {
+            if ($ownsTransaction) {
+                $pdo->commit();
+            }
+            return;
+        }
+        $pdo->prepare('UPDATE maintenance_meta SET last_room_cleanup = ? WHERE id = 1')->execute([$now]);
+
+        $candidates = $pdo->prepare(
+            'SELECT r.code
+               FROM game_rooms r
+              WHERE (r.empty_since IS NOT NULL AND r.empty_since <= ?)
+                 OR NOT EXISTS (
+                      SELECT 1 FROM game_room_players p
+                       WHERE p.room_code = r.code AND p.left_round = 0
+                 )
+                 OR EXISTS (
+                      SELECT 1 FROM game_room_players p
+                       WHERE p.room_code = r.code AND p.left_round = 0 AND p.last_seen > 0 AND p.last_seen < ?
+                 )
+                 OR (r.auto_play = 0 AND r.game_type = \'xapxam\' AND r.status = \'finished\' AND r.finished_at < ?)
+              ORDER BY COALESCE(r.empty_since, 0), r.created_at, r.code
+              LIMIT ' . $batchSize,
+        );
+        $candidates->execute([
+            $now - $retentionSeconds,
+            $now - $idleSeconds,
+            gmdate('Y-m-d H:i:s', $now - 600),
+        ]);
+        $codes = $candidates->fetchAll(PDO::FETCH_COLUMN);
+        $engine = null;
+
+        foreach ($codes as $code) {
+            $room = zingplay_lock_room($pdo, (string)$code);
+            if (!$room) {
+                continue;
+            }
+            if ((int)$room['auto_play'] === 0 && $room['game_type'] === 'xapxam'
+                && $room['status'] === 'finished' && $room['finished_at'] !== null
+                && $room['finished_at'] < gmdate('Y-m-d H:i:s', $now - 600)) {
+                zingplay_delete_room($pdo, $room);
+                continue;
+            }
+            $players = zingplay_lock_players($pdo, (string)$code);
+            $staleIds = [];
+            foreach ($players as $player) {
+                if ((int)$player['left_round'] === 0 && (int)$player['last_seen'] > 0
+                    && $now - (int)$player['last_seen'] > $idleSeconds) {
+                    $staleIds[] = $player['player_id'];
+                }
+            }
+
+            foreach ($staleIds as $playerId) {
+                $players = zingplay_lock_players($pdo, (string)$code);
+                $selfIndex = null;
+                foreach ($players as $index => $player) {
+                    if ($player['player_id'] === $playerId && (int)$player['left_round'] === 0) {
+                        $selfIndex = $index;
+                        break;
+                    }
+                }
+                if ($selfIndex === null) {
+                    continue;
+                }
+                if ($room['game_type'] === 'tienlen') {
+                    $engine ??= new TienLenEngine();
+                    $engine->leave($pdo, $room, $players, $selfIndex, $now);
+                } elseif ((int)$room['auto_play'] === 1) {
+                    room_leave_auto($pdo, $room, $players, $selfIndex, $now);
+                } else {
+                    room_leave_stale($pdo, $room, $players, $selfIndex, $now);
+                }
+                if (!empty($room['deleted'])) {
+                    continue 2;
+                }
+            }
+
+            $players = zingplay_lock_players($pdo, (string)$code);
+            $active = zingplay_active_players($players);
+            if ($active !== []) {
+                if (($room['empty_since'] ?? null) !== null) {
+                    zingplay_update_room($pdo, $room, ['empty_since' => null], $now);
+                }
+                continue;
+            }
+
+            $emptySince = isset($room['empty_since']) ? (int)$room['empty_since'] : null;
+            if ($emptySince === null) {
+                zingplay_update_room($pdo, $room, ['empty_since' => $now], $now);
+                continue;
+            }
+            if ($now - $emptySince < $retentionSeconds) {
+                continue;
+            }
+
+            $unfinishedRound = $room['status'] === 'playing'
+                && in_array($room['phase'], ['dealing', 'arranging', 'playing'], true)
+                && (int)$room['round_no'] > 0;
+            if ($room['game_type'] === 'tienlen' && ($room['scoring_mode'] ?? 'coins') === 'points') {
+                $state = $room['game_state'] ? json_decode($room['game_state'], true, 512, JSON_THROW_ON_ERROR) : [];
+                save_tienlen_history($pdo, $room, $state, 'abandoned', $now);
+            } elseif ($unfinishedRound
+                && !function_exists('save_room_history_before_cleanup')) {
+                continue;
+            } elseif ($unfinishedRound) {
+                save_room_history_before_cleanup($pdo, $room, $players, $now);
+            }
+            zingplay_delete_room($pdo, $room);
+        }
+
+        if ($ownsTransaction) {
+            $pdo->commit();
+        }
+    } catch (Throwable $exception) {
+        if ($ownsTransaction && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    }
 }
 
 function find_active_membership(PDO $pdo, string $userId): ?array
@@ -334,7 +522,11 @@ function room_snapshot(PDO $pdo, array $user, string $code): array
     }
     if (($room['game_type'] ?? 'xapxam') === 'tienlen') {
         require_once __DIR__ . '/games/tienlen/TienLenEngine.php';
-        return (new TienLenEngine())->viewFor($pdo, $user, $code);
+        $snapshot = (new TienLenEngine())->viewFor($pdo, $user, $code);
+        if (isset($user['autoTopupAmount'])) {
+            $snapshot['autoTopupAmount'] = (int)$user['autoTopupAmount'];
+        }
+        return $snapshot;
     }
     $playersStatement = $pdo->prepare(
         'SELECT p.player_id, p.user_id, p.seat_number, p.display_name, p.hand_json, p.arrangement_json,
@@ -403,7 +595,7 @@ function room_snapshot(PDO $pdo, array $user, string $code): array
         'results' => $results,
         'historySaved' => $visible,
         'balance' => $balanceBefore[$self['player_id']] ?? (int)$self['balance'],
-    ];
+    ] + (isset($user['autoTopupAmount']) ? ['autoTopupAmount' => (int)$user['autoTopupAmount']] : []);
 }
 
 function user_balance(PDO $pdo, string $userId): int
@@ -455,10 +647,14 @@ function settle_match_chips(PDO $pdo, array $players, array $results, int $stake
         $balanceAfter = $balances[$userId] + $delta;
         $result['chips'] = $delta;
         $result['balanceBefore'] = $balances[$userId];
-        $result['balanceAfter'] = $balanceAfter;
         if ($delta !== 0) {
             $update->execute([$balanceAfter, $userId]);
             record_wallet_transaction($pdo, $userId, 'match_result', $delta, $balanceAfter, $matchId);
+        }
+        $autoTopup = ensureMinCoins($pdo, $userId);
+        $result['balanceAfter'] = user_balance($pdo, $userId);
+        if ($autoTopup !== null) {
+            $result['autoTopupAmount'] = $autoTopup;
         }
     }
     unset($result);

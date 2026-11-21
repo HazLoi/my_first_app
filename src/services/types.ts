@@ -4,6 +4,28 @@ import type { ChopRules, Combo, TienLenCard } from '@/game-logic/tienlen';
 
 export type Phase = 'waiting' | 'dealing' | 'playing' | 'arranging' | 'revealing' | 'scoring' | 'summary' | 'next';
 
+export interface TienLenScoringConfig {
+  rankPoints: Partial<Record<2 | 3 | 4, number[]>>;
+  chopValues: Record<'black_two' | 'red_two' | 'four' | 'pairs_run_3' | 'pairs_run_4', number>;
+  chopperGains: boolean;
+  chopOverMode?: 'last-pays-all' | 'stack';
+  coverShortfallByEarlierVictims?: boolean;
+  whiteEnabled: boolean;
+  bonusPerOpponent: number;
+  whiteTypes: Record<'dragon' | 'four_twos' | 'six_pairs' | 'five_pairs_run' | 'four_threes', boolean>;
+  coldEnabled: boolean;
+  coldPenalty: number;
+  rottenEnabled: boolean;
+}
+
+export interface RoomChatMessage {
+  id: number;
+  userId: string;
+  displayName: string;
+  text: string;
+  createdAt: number;
+}
+
 export interface TienLenState {
   cards: TienLenCard[];
   turn: string | null;
@@ -15,7 +37,13 @@ export interface TienLenState {
   chopRules: ChopRules;
   turnSeconds: number;
   events: Array<{ type: string; player?: string; from?: string; to?: string }>;
-  results: { players: Array<{ id: string; name: string; place: number | null; chips: number; details: { rank: number; chop: number; cold: number; rotten: number; white: number } }> } | null;
+  results: { players: Array<{ id: string; name: string; place: number | null; matchPlace?: number | null; left?: boolean; chips: number; roundPoints?: number; matchPoints?: number; matchEnded?: boolean; matchTieIds?: string[]; autoTopupAmount?: number; details: { rank: number; chop: number; cold: number; rotten: number; white: number; round?: number } }>; chopChains?: Array<{ layers: Array<{ from: string; to: string; combo: Combo }>; units: number; mode: 'last-pays-all' | 'stack'; transfers: Array<{ from: string; to: string; amount: number; credited: boolean }> }> } | null;
+  scoringMode?: 'points' | 'coins';
+  targetScore?: number;
+  scoringConfig?: TienLenScoringConfig;
+  matchTotals?: Record<string, number>;
+  matchEnded?: boolean;
+  matchPlayers?: Array<{ id: string; name: string; left: boolean }>;
 }
 
 export type ConnectionStatus = 'online' | 'reconnecting' | 'offline';
@@ -68,9 +96,11 @@ export interface TableState {
   arrangement: ArrangementIds | null;
   submitted: boolean;
   balance: number;
+  autoTopupAmount?: number;
   results: RoundResults | null;
   cancelled: boolean;
   cancelMessage?: string;
+  chatMessages?: RoomChatMessage[];
   tienlen?: TienLenState;
 }
 
@@ -84,6 +114,7 @@ export interface TableSummary {
   hasPassword: boolean;
   phase: Phase;
   round: number;
+  scoringMode?: 'points' | 'coins';
 }
 
 export interface CreateTableOptions {
@@ -92,6 +123,9 @@ export interface CreateTableOptions {
   maxPlayers: 2 | 3 | 4;
   isPublic: boolean;
   password?: string;
+  scoringMode?: 'points' | 'coins';
+  targetScore?: number;
+  scoringConfig?: TienLenScoringConfig;
 }
 
 export interface MatchHistoryEntry {

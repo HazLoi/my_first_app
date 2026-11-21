@@ -4,6 +4,7 @@ export interface UserProfile {
   displayName: string;
   role: 'player' | 'admin';
   balance: number;
+  autoTopupAmount?: number;
   level?: number;
   avatar?: number;
 }

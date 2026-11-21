@@ -30,7 +30,7 @@ $indexes = static function (PDO $pdo): array {
 };
 $required = [
     'game_rooms' => ['auto_play', 'max_players', 'password_hash', 'phase', 'phase_started_at', 'phase_deadline', 'version',
-        'round_no', 'seed', 'last_activity'],
+        'round_no', 'seed', 'last_activity', 'empty_since'],
     'game_room_players' => ['last_seen', 'left_round'],
     'matches' => ['seed', 'round_no'],
 ];
@@ -76,6 +76,14 @@ check(in_array('game_rooms_game_type_status_idx', $gameHubIndexes, true), '004_g
 zp_run_sql_file($pdo, $gameHubMigration);
 check($columns($pdo) === $gameHub, '004_game_hub.sql chạy lại làm đổi cấu trúc.');
 check($indexes($pdo) === $gameHubIndexes, '004_game_hub.sql chạy lại làm đổi index.');
+$phaseFiveMigration = dirname($root) . '/sql/005_points_chat_history.sql';
+zp_run_sql_file($pdo, $phaseFiveMigration);
+$phaseFive = $columns($pdo);
+foreach (['table_chat', 'match_history'] as $name) {
+    check(isset($phaseFive[$name]), "005_points_chat_history.sql: thiếu bảng $name.");
+}
+zp_run_sql_file($pdo, $phaseFiveMigration);
+check($columns($pdo) === $phaseFive, '005_points_chat_history.sql chạy lại làm đổi cấu trúc.');
 $room = $pdo->query("SELECT * FROM game_rooms WHERE code = 'ABCDE'")->fetch();
 check($room['stake'] === 100 && (int)$room['auto_play'] === 0 && (int)$room['max_players'] === 4 && $room['phase'] === 'waiting'
     && (int)$room['version'] === 0 && $room['password_hash'] === null && $room['phase_deadline'] === null

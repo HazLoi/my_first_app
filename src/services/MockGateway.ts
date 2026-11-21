@@ -25,6 +25,7 @@ import {
   type MatchHistoryEntry,
   type Phase,
   type RoundResults,
+  type RoomChatMessage,
   type TableEvent,
   type TablePlayer,
   type TableState,
@@ -95,6 +96,8 @@ class MockTable {
   version = 1;
   seed = '';
   results: RoundResults | null = null;
+  chatMessages: RoomChatMessage[] = [];
+  private nextChatId = 1;
   listeners = new Set<TableSubscription>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private botTimers: ReturnType<typeof setTimeout>[] = [];
@@ -212,6 +215,7 @@ class MockTable {
       balance: shown(me),
       results: showResults ? this.results : null,
       cancelled: false,
+      chatMessages: this.chatMessages,
     };
   }
 
@@ -401,12 +405,22 @@ class MockTable {
     const player = this.players.find((p) => p.id === playerId);
     if (!player) return;
     this.emitEvent({ type: emoji ? 'emoji' : 'chat', playerId, name: player.name, text, at: Date.now() });
+    this.chatMessages.push({
+      id: this.nextChatId++, userId: playerId, displayName: player.name, text: text.slice(0, 200), createdAt: Date.now(),
+    });
+    this.chatMessages = this.chatMessages.slice(-50);
+    this.touch();
     const bot = this.players.find((p) => p.isBot);
     if (!emoji && bot && Math.random() < 0.5) {
-      setTimeout(
-        () => this.emitEvent({ type: 'chat', playerId: bot.id, name: bot.name, text: pick(BOT_CHATS), at: Date.now() }),
-        rnd(600, 1600),
-      );
+      setTimeout(() => {
+        const reply = pick(BOT_CHATS);
+        this.emitEvent({ type: 'chat', playerId: bot.id, name: bot.name, text: reply, at: Date.now() });
+        this.chatMessages.push({
+          id: this.nextChatId++, userId: bot.id, displayName: bot.name, text: reply, createdAt: Date.now(),
+        });
+        this.chatMessages = this.chatMessages.slice(-50);
+        this.touch();
+      }, rnd(600, 1600));
     }
   }
 
@@ -625,7 +639,7 @@ export class MockGateway implements GameGateway {
   }
 
   async sendChat(code: string, text: string): Promise<void> {
-    this.tableOf(code).chat(this.me().id, text.slice(0, 80), false);
+    this.tableOf(code).chat(this.me().id, text.slice(0, 200), false);
   }
 
   async sendEmoji(code: string, emoji: string): Promise<void> {

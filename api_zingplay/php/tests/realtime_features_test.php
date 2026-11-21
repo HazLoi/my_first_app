@@ -233,7 +233,10 @@ $assert($spectatorJoin['status'] === 200 && $spectatorJoin['body']['cards'] === 
     && array_values(array_filter($spectatorJoin['body']['room']['players'], static fn(array $p): bool => $p['spectator']))[0]['name'] === $d['name'],
     'Khán giả vào giữa ván: không có bài, spectator=true.');
 $assert(zp_submit_auto($pdo, $d, $code)['status'] === 409, 'Khán giả không nộp bài được.');
-$assert(zp_api($pdo, 'GET', '/rooms', $e['token'])['body']['rooms'] === [], 'Phòng đầy (3 + 1 khán giả = 4) không nằm trong danh sách.');
+$listed = zp_api($pdo, 'GET', '/rooms', $e['token'])['body']['rooms'];
+$listedFull = array_values(array_filter($listed, static fn(array $room): bool => $room['code'] === $code));
+$assert(count($listedFull) === 1 && $listedFull[0]['playerCount'] === 4,
+    'Bàn đủ người vẫn được liệt kê để hiện trạng thái Đầy.');
 // Người rời giữa ván trở thành "ma": ván vẫn tiếp tục, vẫn thanh toán.
 $leave = zp_api($pdo, 'POST', '/rooms/' . $code . '/leave', $c['token']);
 $assert($leave['status'] === 200 && $leave['body']['cancelled'] === false, 'Rời giữa ván không hủy ván khi còn đủ người.');
@@ -278,7 +281,11 @@ $assert($afterCancel['room']['phase'] === 'waiting' && $afterCancel['cards'] ===
     && isset($afterCancel['room']['cancelMessage']) && count($afterCancel['room']['players']) === 1, 'Còn <2 người thật → hủy ván về waiting.');
 $assert([zp_balance($pdo, $a['id']), zp_balance($pdo, $d['id'])] === $cancelBalances, 'Hủy ván không đổi xu.');
 zp_api($pdo, 'POST', '/rooms/' . $code . '/leave', $a['token']);
-$assert(zp_room_row($pdo, $code) === null, 'Phòng không còn người thì bị xóa.');
+$emptyRoom = zp_room_row($pdo, $code);
+$assert($emptyRoom !== null && (int)$emptyRoom['empty_since'] === zingplay_now(), 'Bàn trống được đánh dấu để chờ hết thời gian ân hạn.');
+zp_advance_time(31);
+zp_api($pdo, 'GET', '/rooms', $b['token']);
+$assert(zp_room_row($pdo, $code) === null, 'Bàn trống quá 30 giây được xóa.');
 
 // ---------------------------------------------------------------- 6. Rời khi chủ phòng, chuyển chủ
 $pdo = $fresh();
@@ -298,6 +305,10 @@ $join($pdo, $b, $code);
 $join($pdo, $c, $code);
 zp_advance_time(60);
 $poll($pdo, $a, $code);
+$seenStatement = $pdo->prepare('SELECT last_seen FROM game_room_players WHERE room_code = ? AND user_id = ?');
+$seenStatement->execute([$code, $a['id']]);
+$seen = (int)$seenStatement->fetchColumn();
+$assert($seen === zingplay_now(), 'Mọi request polling đều cập nhật last_seen.');
 $poll($pdo, $b, $code);
 $start = zp_api($pdo, 'POST', '/rooms/' . $code . '/start', $a['token']);
 $assert($start['status'] === 200 && count($start['body']['room']['players']) === 2, 'Idle > 45s bị loại khi chia bài.');
@@ -317,8 +328,15 @@ $assert($third['status'] === 200 && $third['body']['room']['code'] === $first['b
 zp_set_balance($pdo, $users[4]['id'], 5000);
 $rich = zp_api($pdo, 'POST', '/rooms/quick', $users[4]['token'], ['stake' => 200]);
 $assert($rich['status'] === 201 && $rich['body']['room']['stake'] === 200, 'Quick-play với mức cược chỉ định, chưa có phòng → tạo mới.');
+$ledgerBefore = (int)$pdo->query("SELECT COUNT(*) FROM wallet_transactions WHERE type = 'auto_topup'")->fetchColumn();
 zp_set_balance($pdo, $users[5]['id'], 10);
-$assert(zp_api($pdo, 'POST', '/rooms/quick', $users[5]['token'])['status'] === 409, 'Không đủ xu cho mức nào → 409.');
+$me = zp_api($pdo, 'GET', '/auth/me', $users[5]['token']);
+$assert($me['body']['user']['balance'] === 10000 && $me['body']['user']['autoTopupAmount'] === 10000,
+    'Lấy tài khoản tự tặng xu khi số dư dưới ngưỡng.');
+$again = zp_api($pdo, 'GET', '/auth/me', $users[5]['token']);
+$assert(!isset($again['body']['user']['autoTopupAmount']), 'Không tặng xu lần hai khi số dư đã đạt ngưỡng.');
+$assert((int)$pdo->query("SELECT COUNT(*) FROM wallet_transactions WHERE type = 'auto_topup'")->fetchColumn() === $ledgerBefore + 1,
+    'Tự tặng xu được ghi đúng một lần vào sổ cái.');
 $assert(zp_api($pdo, 'POST', '/rooms/quick', $users[0]['token'])['status'] === 409, 'Đang ở phòng thì không quick-play.');
 $assert(zp_api($pdo, 'POST', '/rooms/quick', $users[5]['token'], ['stake' => 7])['status'] === 400, 'Mức cược sai → 400.');
 $list = zp_api($pdo, 'GET', '/rooms', $users[5]['token'])['body']['rooms'];
@@ -326,6 +344,54 @@ $assert(count($list) === 3, 'Danh sách có 3 phòng công khai còn chỗ.');
 $sample = array_values(array_filter($list, static fn(array $room): bool => $room['code'] === $first['body']['room']['code']))[0];
 $assert($sample === ['code' => $first['body']['room']['code'], 'hostName' => $users[0]['name'], 'playerCount' => 2, 'stake' => 50,
     'maxPlayers' => 4, 'hasPassword' => false, 'phase' => 'waiting', 'autoPlay' => true, 'round' => 0], 'Phần tử danh sách phòng.');
+
+// ---------------------------------------------------------------- 8b. Cấu hình điểm Tiến Lên và quick-play không ghép bàn tính xu
+$pointsPdo = $fresh();
+[$a, $b, $c] = zp_users($pointsPdo, 3);
+$coinRoom = $createAuto($pointsPdo, $a, ['game_type' => 'tienlen', 'scoringMode' => 'coins', 'maxPlayers' => 2]);
+$pointsRoom = zp_api($pointsPdo, 'POST', '/rooms', $b['token'], [
+    'game_type' => 'tienlen', 'autoPlay' => true, 'isPublic' => true, 'stake' => 50, 'maxPlayers' => 2,
+    'scoringConfig' => ['whiteTypes' => ['dragon' => true, 'four_twos' => false]],
+]);
+$assert($pointsRoom['status'] === 201 && $pointsRoom['body']['room']['scoringMode'] === 'points'
+    && $pointsRoom['body']['room']['scoringConfig']['whiteTypes'] === [
+        'dragon' => true, 'four_twos' => false, 'six_pairs' => false, 'five_pairs_run' => false, 'four_threes' => false,
+    ], 'Bàn Tiến Lên mặc định tính điểm và nhận map bật/tắt tới trắng.');
+$badWhiteTypes = zp_api($pointsPdo, 'POST', '/rooms', $c['token'], [
+    'game_type' => 'tienlen', 'autoPlay' => true, 'isPublic' => true, 'stake' => 50,
+    'scoringConfig' => ['whiteTypes' => ['dragon' => 'true']],
+]);
+$assert($badWhiteTypes['status'] === 400, 'Map tới trắng sai kiểu bị từ chối.');
+$quickTienLen = zp_api($pointsPdo, 'POST', '/rooms/quick', $c['token'], ['game_type' => 'tienlen', 'stake' => 50]);
+$assert($quickTienLen['status'] === 200 && $quickTienLen['body']['room']['code'] === $pointsRoom['body']['room']['code']
+    && $quickTienLen['body']['room']['code'] !== $coinRoom['room']['code']
+    && $quickTienLen['body']['room']['scoringMode'] === 'points', 'Quick-play Tiến Lên ghép bàn tính điểm, không ghép bàn tính xu.');
+
+$manualPdo = $fresh();
+[$a, $b] = zp_users($manualPdo, 2);
+$code = $createAuto($manualPdo, $a, ['game_type' => 'tienlen', 'maxPlayers' => 2, 'scoringConfig' => ['whiteEnabled' => false]])['room']['code'];
+$join($manualPdo, $b, $code);
+$playerIds = array_column(zingplay_lock_players($manualPdo, $code), 'player_id');
+$previousState = ['matchEnded' => true, 'matchTotals' => array_fill_keys($playerIds, 9), 'winner' => $playerIds[0]];
+$manualPdo->prepare("UPDATE game_rooms SET status = 'playing', phase = 'summary', round_no = 1, game_state = ?, phase_deadline = ? WHERE code = ?")
+    ->execute([zingplay_json($previousState), zingplay_now() + 15, $code]);
+$manualStart = zp_api($manualPdo, 'POST', '/rooms/' . $code . '/start', $a['token']);
+$assert($manualStart['status'] === 200 && $manualStart['body']['room']['phase'] === 'dealing'
+    && $manualStart['body']['room']['round'] === 2
+    && $manualStart['body']['matchTotals'] === array_fill_keys($playerIds, 0), 'Chủ bàn bắt đầu trận mới thủ công và tổng điểm được reset.');
+
+$automaticPdo = $fresh();
+[$a, $b] = zp_users($automaticPdo, 2);
+$code = $createAuto($automaticPdo, $a, ['game_type' => 'tienlen', 'maxPlayers' => 2, 'scoringConfig' => ['whiteEnabled' => false]])['room']['code'];
+$join($automaticPdo, $b, $code);
+$playerIds = array_column(zingplay_lock_players($automaticPdo, $code), 'player_id');
+$automaticPdo->prepare("UPDATE game_rooms SET status = 'playing', phase = 'summary', round_no = 1, game_state = ?, phase_deadline = ? WHERE code = ?")
+    ->execute([zingplay_json(['matchEnded' => true, 'matchTotals' => array_fill_keys($playerIds, 9)]), zingplay_now() + 15, $code]);
+zp_advance_time(15);
+$automaticStart = $poll($automaticPdo, $a, $code);
+$assert($automaticStart['body']['room']['phase'] === 'dealing' && $automaticStart['body']['room']['round'] === 2
+    && $automaticStart['body']['matchTotals'] === array_fill_keys($playerIds, 0), 'Hết thời gian tổng kết tự bắt đầu trận mới và reset tổng điểm.');
+
 // Phòng auto_play đang chơi vẫn hiện nếu còn chỗ; phòng riêng tư thì không.
 $private = $createAuto($pdo, zp_register($pdo, '0911111111'), ['isPublic' => false]);
 $assert(count(zp_api($pdo, 'GET', '/rooms', $users[5]['token'])['body']['rooms']) === 3, 'Phòng riêng tư không hiện.');
@@ -334,13 +400,31 @@ zp_api($pdo, 'POST', '/rooms/' . $code . '/start', $users[0]['token']);
 $playing = array_values(array_filter(zp_api($pdo, 'GET', '/rooms', $users[5]['token'])['body']['rooms'], static fn(array $room): bool => $room['code'] === $code));
 $assert(count($playing) === 1 && $playing[0]['phase'] === 'dealing' && $playing[0]['round'] === 1, 'Phòng auto_play đang chơi còn chỗ vẫn hiện.');
 
-// ---------------------------------------------------------------- 9. Dọn phòng
+// ---------------------------------------------------------------- 9. Dọn phòng trống sau thời gian ân hạn
 $pdo = $fresh();
 [$a, $b] = zp_users($pdo, 2);
 $code = $createAuto($pdo, $a)['room']['code'];
-zp_advance_time(1801);
+zp_advance_time(46);
 zp_api($pdo, 'GET', '/rooms', $b['token']);
-$assert(zp_room_row($pdo, $code) === null, 'Phòng auto_play không hoạt động > 30 phút bị xóa.');
+$emptyRoom = zp_room_row($pdo, $code);
+$assert($emptyRoom !== null && (int)$emptyRoom['empty_since'] === zingplay_now(), 'Người không heartbeat quá 45 giây được xem là đã rời bàn.');
+zp_advance_time(31);
+zp_api($pdo, 'GET', '/rooms', $b['token']);
+$assert(zp_room_row($pdo, $code) === null, 'Bàn không người quá 30 giây bị xóa.');
+
+$pdo = $fresh();
+$insertRoom = $pdo->prepare(
+    "INSERT INTO game_rooms (code, host_player_id, status, empty_since) VALUES (?, ?, 'waiting', ?)",
+);
+for ($index = 0; $index < 51; $index++) {
+    $insertRoom->execute([sprintf('X%04d', $index), new_id(), zingplay_now() - 31]);
+}
+cleanup_rooms($pdo);
+$remaining = (int)$pdo->query('SELECT COUNT(*) FROM game_rooms')->fetchColumn();
+$assert($remaining === 1, 'Mỗi lần dọn lười chỉ xử lý tối đa 50 bàn.');
+zp_advance_time(10);
+cleanup_rooms($pdo);
+$assert((int)$pdo->query('SELECT COUNT(*) FROM game_rooms')->fetchColumn() === 0, 'Khóa meta cho phép dọn tiếp sau 10 giây.');
 
 // ---------------------------------------------------------------- 10. Tới trắng trong ván thật
 $searchSeed = static function (): array {
@@ -379,7 +463,7 @@ $code = $old['body']['room']['code'];
 $assert($old['status'] === 201 && $old['body']['room']['autoPlay'] === false && $old['body']['room']['phase'] === 'waiting', 'Phòng cũ.');
 $join($pdo, $b, $code);
 $assert(zp_api($pdo, 'POST', '/rooms/' . $code . '/start', $a['token'])['body']['room']['started'] === true, 'Phòng cũ start thủ công.');
-zp_advance_time(1000);
+zp_advance_time(30);
 $assert($poll($pdo, $a, $code)['body']['room']['phase'] === 'arranging', 'Phòng cũ không tự chuyển phase.');
 zp_submit_auto($pdo, $a, $code);
 $oldFinal = zp_submit_auto($pdo, $b, $code);
@@ -398,5 +482,41 @@ zp_api($pdo, 'POST', '/rooms/' . $code . '/start', $a['token']);
 $assert(zp_api($pdo, 'POST', '/rooms/' . $code . '/leave', $b['token'])['body']['cancelled'] === true, 'Phòng cũ: rời giữa ván hủy ván.');
 $cancelled = $poll($pdo, $a, $code)['body'];
 $assert($cancelled['room']['cancelled'] === true && isset($cancelled['room']['cancelMessage']), 'Snapshot phòng cũ bị hủy.');
+
+// ---------------------------------------------------------------- 12. Chat polling, kiểm soát quyền và giới hạn tin
+$pdo = $fresh();
+[$a, $b, $c] = zp_users($pdo, 3);
+$code = $createAuto($pdo, $a)['room']['code'];
+$join($pdo, $b, $code);
+$sendChat = static fn(array $user, array $body): array
+    => zp_api($pdo, 'POST', '/rooms/' . $code . '/chat', $user['token'], $body);
+$firstChat = $sendChat($a, ['text' => '<b>Xin chào</b><script>alert(1)</script>']);
+$assert($firstChat['status'] === 201 && !str_contains($firstChat['body']['message']['text'], '<')
+    && $firstChat['body']['message']['text'] === 'Xin chàoalert(1)', 'Tin chat được lọc HTML trước khi lưu.');
+$assert($sendChat($a, ['text' => 'Gửi quá nhanh'])['status'] === 429, 'Giới hạn một tin mỗi giây/người.');
+$assert($sendChat($c, ['text' => 'Người ngoài'])['status'] === 403, 'Người ngoài bàn không gửi được chat.');
+$pollWithChat = $poll($pdo, $b, $code, ['chat_since_id' => 0])['body'];
+$assert(count($pollWithChat['chatMessages']) === 1
+    && $pollWithChat['chatMessages'][0]['id'] === $firstChat['body']['message']['id'], 'Chat được nhận qua polling trạng thái bàn.');
+zp_advance_time(1);
+$secondChat = $sendChat($b, ['text' => str_repeat('á', 201)]);
+$assert($secondChat['status'] === 201 && count(preg_split('//u', $secondChat['body']['message']['text'], -1, PREG_SPLIT_NO_EMPTY)) === 200,
+    'Nội dung chat được giới hạn tối đa 200 ký tự Unicode.');
+$incremental = $poll($pdo, $a, $code, ['chat_since_id' => $firstChat['body']['message']['id']])['body'];
+$assert(count($incremental['chatMessages']) === 1 && $incremental['chatMessages'][0]['id'] === $secondChat['body']['message']['id'],
+    'chat_since_id chỉ trả tin mới.');
+for ($index = 0; $index < 51; $index++) {
+    zp_advance_time(1);
+    $poll($pdo, $a, $code);
+    $chatResponse = $sendChat($a, ['text' => 'Tin ' . $index]);
+    $assert($chatResponse['status'] === 201, 'Gửi được tin trong kiểm tra giới hạn lưu: ' . json_encode($chatResponse, JSON_UNESCAPED_UNICODE));
+}
+$latestChats = $poll($pdo, $a, $code, ['chat_since_id' => 0])['body']['chatMessages'];
+$assert(count($latestChats) === 50 && $latestChats[0]['text'] === 'Tin 1', 'Mỗi bàn chỉ lưu 50 tin mới nhất.');
+$assert($poll($pdo, $c, $code)['status'] === 403, 'Người ngoài bàn không đọc được snapshot/chat.');
+$removeChatRoom = $pdo->prepare('DELETE FROM game_rooms WHERE code = ?');
+$removeChatRoom->execute([$code]);
+$assert((int)$pdo->query('SELECT COUNT(*) FROM table_chat WHERE table_id = ' . $pdo->quote($code))->fetchColumn() === 0,
+    'Xóa bàn đồng thời xóa chat theo khóa ngoại.');
 
 echo "Realtime feature tests passed ($passed assertions, " . zp_driver() . ").\n";

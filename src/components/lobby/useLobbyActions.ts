@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { STAKES } from '@/config/rules';
 import { getGame, type GameId } from '@/config/games';
@@ -20,9 +20,31 @@ const errorText = (error: unknown): string =>
 export function useLobbyActions(toast: Toast, gameType: GameId) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
+  const [hasCurrentTable, setHasCurrentTable] = useState(false);
   const busyRef = useRef(false);
 
-  const enter = useCallback((code: string) => navigate(`/table/${code}`), [navigate]);
+  const enter = useCallback((code: string) => {
+    sessionStorage.setItem('zp_last_table', code);
+    setHasCurrentTable(true);
+    navigate(`/table/${code}`);
+  }, [navigate]);
+
+  useEffect(() => {
+    let active = true;
+    gateway().currentTableCode().then((code) => {
+      if (!active) return;
+      setHasCurrentTable(code !== null);
+      if (code !== null) {
+        sessionStorage.setItem('zp_last_table', code);
+      } else if (sessionStorage.getItem('zp_last_table')) {
+        sessionStorage.removeItem('zp_last_table');
+        toast(t('lobby.tableClosed'), 'info');
+      }
+    }).catch((error: unknown) => {
+      if (active) toast(errorText(error), 'error');
+    });
+    return () => { active = false; };
+  }, [toast]);
 
   const needCoins = useCallback(
     (stake: number): void => {
@@ -35,6 +57,7 @@ export function useLobbyActions(toast: Toast, gameType: GameId) {
   const checkStake = useCallback(
     (stake: number): boolean => {
       if (canAfford(currentBalance(), stake)) return true;
+      if (gateway().kind === 'polling') return true;
       needCoins(stake);
       return false;
     },
@@ -61,7 +84,8 @@ export function useLobbyActions(toast: Toast, gameType: GameId) {
 
   /** Với bàn chưa biết mức cược (nhập mã), kiểm tra lại sau khi vào và rời bàn nếu thiếu xu. */
   const rejectIfPoor = useCallback(async (state: TableState): Promise<void> => {
-    if (canAfford(currentBalance(), state.stake)) return;
+    if (state.gameType === 'tienlen' && state.tienlen?.scoringMode === 'points') return;
+    if (canAfford(state.balance, state.stake)) return;
     await gateway()
       .leaveTable(state.code)
       .catch(() => undefined);
@@ -70,10 +94,20 @@ export function useLobbyActions(toast: Toast, gameType: GameId) {
     );
   }, []);
 
+  const recordAutoTopup = useCallback((state: TableState): void => {
+    if (state.autoTopupAmount !== undefined) {
+      useAuthStore.getState().setBalance(state.balance, state.autoTopupAmount);
+    }
+  }, []);
+
   const quickPlay = useCallback(async (): Promise<void> => {
     const stake = gameType === 'tienlen'
-      ? getGame(gameType).betLevels.filter((value) => value <= 200 && canAfford(currentBalance(), value)).sort((a, b) => b - a)[0] ?? null
-      : quickPlayStake(currentBalance());
+      ? getGame(gameType).betLevels
+        .filter((value) => value <= 200 && canAfford(currentBalance(), value))
+        .sort((a, b) => b - a)[0]
+        ?? getGame(gameType).betLevels[0]
+        ?? null
+      : quickPlayStake(currentBalance()) ?? (gateway().kind === 'polling' ? STAKES[0] : null);
     if (stake === null) {
       toast(t('lobby.needCoinsQuick', { amount: formatChips(minBalanceFor(STAKES[0])) }), 'error');
       return;
@@ -84,15 +118,23 @@ export function useLobbyActions(toast: Toast, gameType: GameId) {
       await rejectIfPoor(joined);
       return joined;
     });
-    if (state) enter(state.code);
-  }, [enter, gameType, rejectIfPoor, run, toast]);
+    if (state) {
+      recordAutoTopup(state);
+      enter(state.code);
+    }
+  }, [enter, gameType, recordAutoTopup, rejectIfPoor, run, toast]);
 
   const returnToTable = useCallback(async (): Promise<void> => {
     playSound('click');
     const result = await run(async () => ({ code: await gateway().currentTableCode() }));
     if (!result) return;
     if (result.code) enter(result.code);
-    else toast(t('lobby.noCurrentTable'), 'info');
+    else {
+      setHasCurrentTable(false);
+      const hadTable = sessionStorage.getItem('zp_last_table') !== null;
+      sessionStorage.removeItem('zp_last_table');
+      toast(t(hadTable ? 'lobby.tableClosed' : 'lobby.noCurrentTable'), 'info');
+    }
   }, [enter, run, toast]);
 
   const join = useCallback(
@@ -105,20 +147,27 @@ export function useLobbyActions(toast: Toast, gameType: GameId) {
         return joined;
       });
       if (!state) return false;
+      recordAutoTopup(state);
       enter(state.code);
       return true;
     },
-    [checkStake, enter, gameType, rejectIfPoor, run],
+    [checkStake, enter, gameType, recordAutoTopup, rejectIfPoor, run],
   );
 
   const create = useCallback(
     async (options: CreateTableOptions): Promise<TableState | null> => {
       if (!checkStake(options.stake)) return null;
       playSound('click');
-      return run(() => gateway().createTable({ ...options, gameType }));
+      const state = await run(() => gateway().createTable({ ...options, gameType }));
+      if (state) {
+        recordAutoTopup(state);
+        sessionStorage.setItem('zp_last_table', state.code);
+        setHasCurrentTable(true);
+      }
+      return state;
     },
-    [checkStake, gameType, run],
+    [checkStake, gameType, recordAutoTopup, run],
   );
 
-  return { busy, enter, checkStake, quickPlay, returnToTable, join, create };
+  return { busy, hasCurrentTable, enter, checkStake, quickPlay, returnToTable, join, create };
 }

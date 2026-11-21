@@ -75,6 +75,84 @@ final class TienLenRules
         return null;
     }
 
+    public static function chopChains(array $chops): array
+    {
+        $chains = [];
+        foreach ($chops as $chop) {
+            $last = count($chains) - 1;
+            $previous = $last >= 0 ? end($chains[$last]) : null;
+            $sameChain = isset($chop['chainId'], $previous['chainId'])
+                ? $chop['chainId'] === $previous['chainId']
+                : $previous !== null && $previous['to'] === $chop['from']
+                    && isset($previous['combo'])
+                    && $previous['combo'] === $chop['target'];
+            if ($sameChain) {
+                $chains[$last][] = $chop;
+            } else {
+                $chains[] = [$chop];
+            }
+        }
+        return $chains;
+    }
+
+    public static function chopValue(array $combo, array $values): int
+    {
+        $key = self::chopKey($combo);
+        if ($key === 'single_two' || $key === 'pair_twos') {
+            $value = 0;
+            foreach ($combo['cards'] as $card) {
+                $color = in_array($card['suit'], ['spades', 'clubs'], true) ? 'black_two' : 'red_two';
+                $value += $values[$color];
+            }
+            return $value;
+        }
+        if ($key === null || !isset($values[$key])) {
+            throw new LogicException('Bộ bài bị chặt không hợp lệ.');
+        }
+        return $values[$key];
+    }
+
+    public static function settleChops(array $chops, array $values, int $multiplier, array $config, ?array &$balances = null): array
+    {
+        $deltas = [];
+        $summaries = [];
+        foreach (self::chopChains($chops) as $chain) {
+            $mode = $config['chopOverMode'] ?? 'last-pays-all';
+            $last = end($chain);
+            $units = array_sum(array_map(static fn(array $layer): int => self::chopValue($layer['target'], $values), $chain));
+            $transfers = [];
+            $payments = $mode === 'stack' ? $chain : [$last];
+            foreach ($payments as $payment) {
+                $amount = ($mode === 'stack' ? self::chopValue($payment['target'], $values) : $units) * $multiplier;
+                $victims = [$payment['from']];
+                if ($mode !== 'stack' && ($config['coverShortfallByEarlierVictims'] ?? false)) {
+                    foreach (array_reverse($chain) as $layer) {
+                        if (!in_array($layer['from'], $victims, true) && $layer['from'] !== $payment['to']) {
+                            $victims[] = $layer['from'];
+                        }
+                    }
+                }
+                foreach ($victims as $victim) {
+                    if ($amount <= 0) break;
+                    $paid = $balances === null ? $amount : min($amount, max(0, $balances[$victim]));
+                    $amount -= $paid;
+                    if ($balances !== null) {
+                        $balances[$victim] -= $paid;
+                        $balances[$payment['to']] += $paid;
+                    }
+                    $deltas[$victim] = ($deltas[$victim] ?? 0) - $paid;
+                    if ($config['chopperGains'] ?? true) {
+                        $deltas[$payment['to']] = ($deltas[$payment['to']] ?? 0) + $paid;
+                    }
+                    $transfers[] = ['from' => $victim, 'to' => $payment['to'], 'amount' => $paid,
+                        'credited' => $config['chopperGains'] ?? true];
+                }
+            }
+            $summaries[] = ['layers' => $chain, 'units' => $units, 'transfers' => $transfers, 'mode' => $mode];
+        }
+        return ['deltas' => $deltas, 'chains' => $summaries];
+    }
+
     public static function beats(array $candidate, array $table, array $config): bool
     {
         if ($candidate['type'] === $table['type'] && $candidate['count'] === $table['count']) {
@@ -204,6 +282,7 @@ final class TienLenRules
             'played' => array_fill_keys(array_keys($hands), false),
             'timeouts' => array_fill_keys(array_keys($hands), 0),
             'auto' => array_fill_keys(array_keys($hands), false),
+            'cold' => [],
             'chops' => [], 'events' => [], 'whiteWinner' => $whiteWinner, 'whiteType' => $whiteType,
         ];
     }
@@ -214,7 +293,8 @@ final class TienLenRules
         $index = array_search($after, $order, true);
         for ($i = 1; $i <= count($order); $i++) {
             $id = $order[($index + $i) % count($order)];
-            if (!in_array($id, $state['ranking'], true) && !in_array($id, $state['passed'], true)) {
+            if (!in_array($id, $state['ranking'], true) && !in_array($id, $state['passed'], true)
+                && !in_array($id, $state['cold'] ?? [], true)) {
                 return $id;
             }
         }
@@ -259,7 +339,14 @@ final class TienLenRules
             if ($state['table'] !== null && self::chopKey($combo) !== null && self::chopKey($state['table']) !== null
                 && !(in_array(self::chopKey($combo), ['single_two', 'pair_twos'], true)
                     && self::chopKey($combo) === self::chopKey($state['table']))) {
-                $event = ['type' => 'chop', 'from' => $state['lastPlayer'], 'to' => $id, 'target' => $state['table']];
+                $event = [
+                    'type' => 'chop', 'from' => $state['lastPlayer'], 'to' => $id,
+                    'target' => $state['table'], 'combo' => $combo,
+                ];
+                $previous = $state['chops'] === [] ? null : end($state['chops']);
+                $event['chainId'] = $previous !== null && $previous['to'] === $event['from']
+                    && ($previous['combo'] ?? null) === $event['target']
+                    ? ($previous['chainId'] ?? count($state['chops']) - 1) : count($state['chops']);
                 $state['chops'][] = $event;
                 $state['events'][] = $event;
             }
@@ -273,6 +360,17 @@ final class TienLenRules
             $state['lastPlayer'] = $id;
             if ($state['hands'][$id] === []) {
                 $state['ranking'][] = $id;
+                if ($config['coldElimination'] ?? false) {
+                    foreach ($state['order'] as $candidate) {
+                        if ($candidate !== $id && !in_array($candidate, $state['ranking'], true)
+                            && !in_array($candidate, $state['cold'], true)
+                            && !($state['played'][$candidate] ?? false)
+                            && count($state['hands'][$candidate] ?? []) === 13) {
+                            $state['cold'][] = $candidate;
+                            $state['events'][] = ['type' => 'cold', 'player' => $candidate];
+                        }
+                    }
+                }
                 if ($config['rankMode'] === 'first-only') {
                     $state['turn'] = null;
                     return;
@@ -281,8 +379,17 @@ final class TienLenRules
         } else {
             throw new InvalidArgumentException('Hành động không hợp lệ.');
         }
-        if (count($state['ranking']) === count($state['order']) - 1) {
-            $state['ranking'][] = current(array_values(array_diff($state['order'], $state['ranking'])));
+        $cold = $state['cold'] ?? [];
+        if (count($state['ranking']) + count($cold) >= count($state['order']) - 1) {
+            $remaining = array_values(array_diff($state['order'], $state['ranking'], $cold));
+            if ($remaining !== []) {
+                $state['ranking'][] = $remaining[0];
+            }
+            foreach ($cold as $coldId) {
+                if (!in_array($coldId, $state['ranking'], true)) {
+                    $state['ranking'][] = $coldId;
+                }
+            }
             $state['turn'] = null;
             return;
         }
@@ -350,19 +457,9 @@ final class TienLenRules
                 }
             }
         }
-        foreach ($state['chops'] as $chop) {
-            $target = $chop['target'];
-            $key = self::chopKey($target);
-            $value = 0;
-            if ($key === 'single_two' || $key === 'pair_twos') {
-                foreach ($target['cards'] as $card) {
-                    $color = in_array($card['suit'], ['spades', 'clubs'], true) ? 'black_two' : 'red_two';
-                    $value += $config['chopValues'][$color];
-                }
-            } else {
-                $value = $config['chopValues'][$key];
-            }
-            $transfer($chop['from'], $chop['to'], $bet * $value, 'chop');
+        $chops = self::settleChops($state['chops'], $config['chopValues'], $bet, ['chopOverMode' => $config['chopOverMode'] ?? 'last-pays-all']);
+        foreach ($chops['deltas'] as $id => $delta) {
+            $details[$id]['chop'] += $delta;
         }
         return $details;
     }

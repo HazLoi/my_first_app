@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { gateway } from '@/services';
 import { useTableStore } from '@/store/tableStore';
 import { useAuthStore } from '@/store/authStore';
-import { t } from '@/i18n';
+import { formatChips, t } from '@/i18n';
 import type { TableState } from '@/services/types';
 
 /**
@@ -14,6 +14,10 @@ export function useTable(code: string | undefined): void {
     if (!code) return undefined;
     const store = useTableStore;
     store.getState().reset(code);
+    const autoTopupAmount = useAuthStore.getState().consumeAutoTopupNotice();
+    if (autoTopupAmount !== null) {
+      store.getState().pushToast(t('lobby.autoTopup', { amount: formatChips(autoTopupAmount) }), 'good');
+    }
     let previous: TableState | null = null;
 
     const unsubscribe = gateway().subscribeTable(code, {
@@ -44,6 +48,13 @@ export function useTable(code: string | undefined): void {
               store.getState().pushToast(t('table.toast.left', { name: player.name }), 'warn');
             }
           }
+        }
+        const topupResult = next.results?.players.find((result) => result.id === next.selfId)?.autoTopupAmount
+          ?? next.tienlen?.results?.players.find((result) => result.id === next.selfId)?.autoTopupAmount;
+        const previousTopup = known?.results?.players.find((result) => result.id === next.selfId)?.autoTopupAmount
+          ?? known?.tienlen?.results?.players.find((result) => result.id === next.selfId)?.autoTopupAmount;
+        if (topupResult !== undefined && topupResult !== previousTopup) {
+          store.getState().pushToast(t('lobby.autoTopup', { amount: formatChips(topupResult) }), 'good');
         }
         store.getState().applyState(next);
         const me = next.players.find((player) => player.id === next.selfId);

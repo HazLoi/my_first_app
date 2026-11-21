@@ -14,10 +14,7 @@ const ZINGPLAY_PHASE_SECONDS = [
     'summary' => 5,
     'next' => 3,
     'auto_start' => 3,
-    'idle_kick' => 45,
 ];
-const ZINGPLAY_ROOM_IDLE_LIMIT = 1800;
-const ZINGPLAY_SEEN_INTERVAL = 5;
 const ZINGPLAY_LONG_POLL_SECONDS = 15;
 const ZINGPLAY_LONG_POLL_STEP_MICROSECONDS = 400000;
 
@@ -194,6 +191,13 @@ function zingplay_delete_room(PDO $pdo, array &$room): void
     $room['deleted'] = true;
 }
 
+function zingplay_mark_room_empty(PDO $pdo, array &$room, int $now): void
+{
+    if (($room['empty_since'] ?? null) === null) {
+        zingplay_update_room($pdo, $room, ['empty_since' => $now], $now);
+    }
+}
+
 function zingplay_active_players(array $players): array
 {
     return array_values(array_filter($players, static fn(array $player): bool => (int)$player['left_round'] === 0));
@@ -247,7 +251,7 @@ function zingplay_cancel_round(PDO $pdo, array &$room, array &$players, int $now
     $pdo->prepare('DELETE FROM game_room_players WHERE room_code = ? AND left_round = 1')->execute([$room['code']]);
     $players = zingplay_active_players($players);
     if ($players === []) {
-        zingplay_delete_room($pdo, $room);
+        zingplay_mark_room_empty($pdo, $room, $now);
         return;
     }
     zingplay_reset_to_waiting($pdo, $room, $players, $now, $message);
@@ -259,7 +263,7 @@ function zingplay_start_round(PDO $pdo, array &$room, array &$players, int $now)
     $stake = (int)$room['stake'];
     $balances = zingplay_lock_balances($pdo, array_column($players, 'user_id'));
     $minimum = zingplayMinBalance($stake);
-    $idleLimit = $now - zingplay_phase_seconds('idle_kick');
+    $idleLimit = $now - gameplay_setting('room_player_idle_seconds', 1);
     $removeIds = [];
     foreach ($players as $player) {
         $lastSeen = (int)$player['last_seen'];
@@ -280,7 +284,7 @@ function zingplay_start_round(PDO $pdo, array &$room, array &$players, int $now)
         ));
     }
     if ($players === []) {
-        zingplay_delete_room($pdo, $room);
+        zingplay_mark_room_empty($pdo, $room, $now);
         return false;
     }
     if (count($players) < 2) {

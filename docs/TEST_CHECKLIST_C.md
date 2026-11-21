@@ -14,3 +14,9 @@
 12. Tải lại trang và mất/kết nối lại giữa ván; bài, lượt và đồng hồ khôi phục đúng.
 13. Vào bàn đang chơi còn ghế: chỉ xem, không thấy bài người khác, được chia bài ván sau; thử rời bàn khi đang xem.
 14. Quay lại bàn cũ sau khi đã chọn game khác; kiểm tra Xập Xám vẫn chơi bình thường.
+15. Tạo bàn Tiến Lên, mở “Cài đặt tính điểm”, thử Tính điểm/Tính xu, điểm đích 5–200 và các nút 10/20/30/50.
+16. Chỉnh điểm hạng 2/3/4 người, điểm chặt, cóng, tới trắng và thối heo; tạo lại bàn bằng các cấu hình khác.
+17. Nhấn “Luật bàn” ở tài khoản không phải chủ để kiểm tra thông tin cấu hình chỉ đọc.
+18. Gửi API với scoringMode/range/bộ cấu hình sai; server phải trả lỗi tiếng Việt, không ghi cấu hình.
+19. Chơi nhiều ván ở chế độ điểm, kiểm tra bảng góc cộng dồn điểm, thanh tiến độ và huy hiệu +/- chặt.
+20. Khi có người chạm điểm đích, kiểm tra bảng kết thúc trận, cúp hạng nhất và đếm reset 15 giây.

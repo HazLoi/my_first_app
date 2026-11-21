@@ -34,7 +34,8 @@ export interface AuthState {
   refreshProfile(): Promise<void>;
   topUp(amount: number): Promise<void>;
   /** Cập nhật số xu cục bộ (sau ván chơi) mà không gọi API. */
-  setBalance(balance: number): void;
+  setBalance(balance: number, autoTopupAmount?: number): void;
+  consumeAutoTopupNotice(): number | null;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -104,11 +105,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ session: next });
   },
 
-  setBalance(balance) {
+  setBalance(balance, autoTopupAmount) {
     const { session, remember } = get();
-    if (!session || session.user.balance === balance) return;
-    const next = { ...session, user: { ...session.user, balance } };
+    if (!session || (session.user.balance === balance && autoTopupAmount === undefined)) return;
+    const next = {
+      ...session,
+      user: {
+        ...session.user,
+        balance,
+        ...(autoTopupAmount === undefined ? {} : { autoTopupAmount }),
+      },
+    };
     writeStored(next, remember);
     set({ session: next });
+  },
+
+  consumeAutoTopupNotice() {
+    const { session, remember } = get();
+    const amount = session?.user.autoTopupAmount;
+    if (!session || !amount) return null;
+    const next = { ...session, user: { ...session.user } };
+    delete next.user.autoTopupAmount;
+    writeStored(next, remember);
+    set({ session: next });
+    return amount;
   },
 }));

@@ -26,7 +26,7 @@ test("database configuration prefers config directory and supports the legacy pa
   assert.equal(load(), "new");
 });
 
-test("public room listing excludes private, full and non-realtime started rooms", () => {
+test("public room listing excludes private and non-realtime started rooms but includes full tables", () => {
   const bootstrap = path.resolve(__dirname, "../bootstrap.php");
   const output = execFileSync("php", ["-r", `
     require $argv[1];
@@ -60,6 +60,7 @@ test("public room listing excludes private, full and non-realtime started rooms"
   assert.deepEqual(JSON.parse(output), { rooms: [
     { code: "EEEEE", hostName: "Realtime", playerCount: 1, stake: 100, maxPlayers: 3, hasPassword: true, phase: "summary", autoPlay: true, round: 4 },
     { code: "AAAAA", hostName: "Host", playerCount: 1, stake: 200, maxPlayers: 4, hasPassword: false, phase: "waiting", autoPlay: false, round: 0 },
+    { code: "DDDDD", hostName: "Full", playerCount: 4, stake: 50, maxPlayers: 4, hasPassword: false, phase: "waiting", autoPlay: false, round: 0 },
   ] });
 });
 
@@ -71,6 +72,7 @@ test("auth, wallet and admin routes", async (t) => {
   }
   fs.mkdirSync(path.join(temp, "config"));
   fs.copyFileSync(path.join(root, "config", "games.php"), path.join(temp, "config", "games.php"));
+  fs.copyFileSync(path.join(root, "config", "gameplay.php"), path.join(temp, "config", "gameplay.php"));
   fs.writeFileSync(path.join(temp, "config", "database.php"), `<?php
 function database(): PDO {
     $pdo = new PDO('sqlite:' . __DIR__ . '/test.sqlite');
@@ -233,6 +235,7 @@ test("realtime room over HTTP: changed:false, long poll wakes on version change,
     stdio: ["ignore", "pipe", "ignore"],
   });
   fs.mkdirSync(path.join(temp, "config"));
+  fs.copyFileSync(path.join(root, "config", "gameplay.php"), path.join(temp, "config", "gameplay.php"));
   fs.writeFileSync(path.join(temp, "schema.sql"), schema);
   fs.writeFileSync(path.join(temp, "config", "config.php"), "<?php return ['long_poll' => true, 'phase_seconds' => ['auto_start' => 1, 'dealing' => 1]];");
   fs.writeFileSync(path.join(temp, "config", "database.php"), `<?php

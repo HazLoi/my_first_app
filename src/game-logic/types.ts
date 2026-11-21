@@ -71,6 +71,7 @@ export interface PlayerScore {
   chips?: number;
   balanceAfter?: number;
   balanceBefore?: number;
+  autoTopupAmount?: number;
 }
 
 export interface ScoreInput {
