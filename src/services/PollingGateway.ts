@@ -1,5 +1,7 @@
 import { LONG_POLL } from '@/config/env';
+import { DEFAULT_GAME, isGameId, readSelectedGame, saveSelectedGame, type GameId } from '@/config/games';
 import type { ArrangementIds, Card, Pile, PlayerScore } from '@/game-logic';
+import type { TienLenCard } from '@/game-logic/tienlen';
 import { apiFetch } from './apiClient';
 import { readSession } from './sessionStore';
 import {
@@ -14,6 +16,7 @@ import {
   type TableState,
   type TableSubscription,
   type TableSummary,
+  type TienLenState,
   type Unsubscribe,
 } from './types';
 
@@ -21,7 +24,7 @@ import {
 export const POLL_INTERVAL_MS = 1000;
 export const MAX_BACKOFF_MS = 10_000;
 
-const PHASES: readonly Phase[] = ['waiting', 'dealing', 'arranging', 'revealing', 'scoring', 'summary', 'next'];
+const PHASES: readonly Phase[] = ['waiting', 'dealing', 'playing', 'arranging', 'revealing', 'scoring', 'summary', 'next'];
 
 interface RawPlayer {
   id: string;
@@ -31,10 +34,12 @@ interface RawPlayer {
   balance?: number;
   spectator?: boolean;
   left?: boolean;
+  cardCount?: number;
 }
 
 interface RawRoom {
   code: string;
+  gameType?: GameId;
   hostId: string;
   started?: boolean;
   finished?: boolean;
@@ -64,6 +69,15 @@ export interface RawSnapshot {
   results: (Omit<RoundResults, 'players'> & { players: Partial<PlayerScore>[] }) | null;
 }
 
+interface RawTienLenSnapshot extends TienLenState {
+  serverTime?: number;
+  version?: number;
+  changed?: boolean;
+  playerId: string;
+  room: RawRoom & { deadline: number | null };
+}
+type Snapshot = RawSnapshot | RawTienLenSnapshot;
+
 const idOf = (item: Card | string): string => (typeof item === 'string' ? item : item.id);
 
 function derivePhase(room: RawRoom): Phase {
@@ -73,7 +87,30 @@ function derivePhase(room: RawRoom): Phase {
 }
 
 /** Chuẩn hóa JSON snapshot của API PHP (cả phòng cũ lẫn phòng autoPlay) thành TableState. */
-export function normalizeSnapshot(raw: RawSnapshot, previousVersion = 0): TableState {
+export function normalizeSnapshot(raw: Snapshot, previousVersion = 0): TableState {
+  if ('turn' in raw) {
+    const room = raw.room;
+    const players: TablePlayer[] = room.players.map((player, index) => ({
+      id: player.id, name: player.name, seat: player.seat ?? index + 1,
+      balance: player.balance ?? 0, submitted: false,
+      spectator: Boolean(player.spectator), left: Boolean(player.left),
+      cardCount: player.cardCount,
+    }));
+    return {
+      code: room.code, gameType: 'tienlen', hostId: room.hostId, stake: room.stake,
+      maxPlayers: room.maxPlayers ?? 4, hasPassword: Boolean(room.hasPassword), autoPlay: Boolean(room.autoPlay),
+      phase: derivePhase(room), phaseStartedAt: room.phaseStartedAt ?? 0, phaseDeadline: room.deadline,
+      round: room.round ?? 0, version: raw.version ?? previousVersion, players, selfId: raw.playerId,
+      cards: [], arrangement: null, submitted: false,
+      balance: players.find((player) => player.id === raw.playerId)?.balance ?? 0,
+      results: null, cancelled: Boolean(room.cancelled), cancelMessage: room.cancelMessage,
+      tienlen: {
+        cards: raw.cards, turn: raw.turn, table: raw.table, lastPlayer: raw.lastPlayer,
+        passed: raw.passed, ranking: raw.ranking, events: raw.events, required: raw.required,
+        results: raw.results, chopRules: raw.chopRules, turnSeconds: raw.turnSeconds,
+      },
+    };
+  }
   const room = raw.room;
   const players: TablePlayer[] = room.players.map((player, index) => ({
     id: player.id,
@@ -111,6 +148,7 @@ export function normalizeSnapshot(raw: RawSnapshot, previousVersion = 0): TableS
     : null;
   return {
     code: room.code,
+    gameType: room.gameType ?? DEFAULT_GAME,
     hostId: room.hostId,
     stake: room.stake,
     maxPlayers: room.maxPlayers ?? 4,
@@ -146,6 +184,7 @@ class TablePoller {
 
   constructor(
     private readonly code: string,
+    private readonly gameType: GameId,
     private readonly subscription: TableSubscription,
     private readonly token: () => string | null,
     private readonly onClock: (serverTime: number, rtt: number) => void,
@@ -195,7 +234,7 @@ class TablePoller {
   }
 
   /** Áp dụng state từ phản hồi của lệnh (submit/start...) hoặc từ poll. */
-  accept(raw: RawSnapshot): void {
+  accept(raw: Snapshot): void {
     if (this.stopped) return;
     const next = normalizeSnapshot(raw, this.version ?? 0);
     if (this.version !== null && next.version < this.version) return;
@@ -218,11 +257,12 @@ class TablePoller {
     this.controller?.abort();
     this.controller = new AbortController();
     const query = new URLSearchParams();
+    query.set('game_type', this.gameType);
     if (this.version !== null) query.set('since_version', String(this.version));
     if (LONG_POLL && this.version !== null) query.set('wait', '1');
     const suffix = query.toString() ? `?${query.toString()}` : '';
     try {
-      const { data, serverTime, rtt } = await apiFetch<RawSnapshot>(`/rooms/${this.code}${suffix}`, {
+      const { data, serverTime, rtt } = await apiFetch<Snapshot>(`/rooms/${this.code}${suffix}`, {
         token: this.token(),
         signal: this.controller.signal,
         timeoutMs: LONG_POLL ? 25_000 : 10_000,
@@ -245,7 +285,7 @@ class TablePoller {
     } catch (error) {
       if (this.stopped || (error instanceof DOMException && error.name === 'AbortError')) return;
       const status = error instanceof GatewayError ? error.status : 0;
-      if (status === 403 || status === 404 || status === 401) {
+      if (status === 403 || status === 404 || status === 401 || (status === 409 && this.gameType === 'tienlen')) {
         this.subscription.onClosed?.(status === 404 ? 'gone' : 'kicked', (error as GatewayError).message);
         this.stop();
         return;
@@ -289,7 +329,20 @@ export class PollingGateway implements GameGateway {
     return Date.now() + this.clockOffset;
   }
 
-  async listTables(): Promise<TableSummary[]> {
+  async currentTableCode(): Promise<string | null> {
+    const data = await this.request<unknown>('/rooms/current');
+    if (typeof data !== 'object' || data === null || !('code' in data)) {
+      throw new GatewayError('Máy chủ trả mã bàn không hợp lệ.');
+    }
+    if (data.code === null) return null;
+    if (typeof data.code !== 'string' || !/^[A-Z2-9]{5}$/.test(data.code)) {
+      throw new GatewayError('Máy chủ trả mã bàn không hợp lệ.');
+    }
+    if ('gameType' in data && isGameId(data.gameType)) saveSelectedGame(data.gameType);
+    return data.code;
+  }
+
+  async listTables(gameType: GameId = DEFAULT_GAME): Promise<TableSummary[]> {
     const data = await this.request<{
       rooms: Array<{
         code: string;
@@ -301,9 +354,10 @@ export class PollingGateway implements GameGateway {
         phase?: Phase;
         round?: number;
       }>;
-    }>('/rooms');
+    }>(`/rooms?game_type=${encodeURIComponent(gameType)}`);
     return data.rooms.map((room) => ({
       code: room.code,
+      gameType,
       hostName: room.hostName,
       playerCount: room.playerCount,
       maxPlayers: room.maxPlayers ?? 4,
@@ -315,9 +369,10 @@ export class PollingGateway implements GameGateway {
   }
 
   async createTable(options: CreateTableOptions): Promise<TableState> {
-    const raw = await this.request<RawSnapshot>('/rooms', {
+    const raw = await this.request<Snapshot>('/rooms', {
       method: 'POST',
       body: {
+        game_type: options.gameType ?? DEFAULT_GAME,
         isPublic: options.isPublic,
         stake: options.stake,
         maxPlayers: options.maxPlayers,
@@ -328,18 +383,18 @@ export class PollingGateway implements GameGateway {
     return normalizeSnapshot(raw);
   }
 
-  async joinTable(code: string, password?: string): Promise<TableState> {
-    const raw = await this.request<RawSnapshot>('/rooms/join', {
+  async joinTable(code: string, password?: string, gameType: GameId = DEFAULT_GAME): Promise<TableState> {
+    const raw = await this.request<Snapshot>('/rooms/join', {
       method: 'POST',
-      body: { code, ...(password ? { password } : {}) },
+      body: { code, game_type: gameType, ...(password ? { password } : {}) },
     });
     return normalizeSnapshot(raw);
   }
 
-  async quickPlay(stake?: number): Promise<TableState> {
-    const raw = await this.request<RawSnapshot>('/rooms/quick', {
+  async quickPlay(stake?: number, gameType: GameId = DEFAULT_GAME): Promise<TableState> {
+    const raw = await this.request<Snapshot>('/rooms/quick', {
       method: 'POST',
-      body: stake ? { stake } : {},
+      body: { game_type: gameType, ...(stake ? { stake } : {}) },
     });
     return normalizeSnapshot(raw);
   }
@@ -349,7 +404,7 @@ export class PollingGateway implements GameGateway {
   }
 
   async startRound(code: string): Promise<TableState> {
-    const raw = await this.request<RawSnapshot>(`/rooms/${code}/start`, { method: 'POST', body: {} });
+    const raw = await this.request<Snapshot>(`/rooms/${code}/start`, { method: 'POST', body: {} });
     this.pollers.get(code)?.accept(raw);
     return normalizeSnapshot(raw);
   }
@@ -367,6 +422,18 @@ export class PollingGateway implements GameGateway {
     } catch (error) {
       if (poller && previous) poller.emitOptimistic(previous);
       throw error;
+    } finally {
+      if (poller) poller.pending--;
+    }
+  }
+
+  async tienLenAction(code: string, action: { type: 'play'; cards: TienLenCard[] } | { type: 'pass' }): Promise<TableState> {
+    const poller = this.pollers.get(code);
+    if (poller) poller.pending++;
+    try {
+      const raw = await this.request<Snapshot>(`/rooms/${code}/action`, { method: 'POST', body: action });
+      poller?.accept(raw);
+      return normalizeSnapshot(raw);
     } finally {
       if (poller) poller.pending--;
     }
@@ -397,7 +464,14 @@ export class PollingGateway implements GameGateway {
 
   subscribeTable(code: string, subscription: TableSubscription): Unsubscribe {
     this.pollers.get(code)?.stop();
-    const poller = new TablePoller(code, subscription, () => this.token(), (serverTime, rtt) => this.updateClock(serverTime, rtt));
+    const gameType = readSelectedGame();
+    const poller = new TablePoller(
+      code,
+      gameType,
+      subscription,
+      () => this.token(),
+      (serverTime, rtt) => this.updateClock(serverTime, rtt),
+    );
     this.pollers.set(code, poller);
     poller.start();
     return () => {

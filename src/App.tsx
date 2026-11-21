@@ -5,9 +5,11 @@ import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { AuthScreen } from '@/screens/AuthScreen';
 import { LobbyScreen } from '@/screens/LobbyScreen';
+import { readSelectedGame } from '@/config/games';
 
 // Màn bàn chơi kéo theo three.js nên tách chunk riêng.
 const TableScreen = lazy(() => import('@/screens/TableScreen').then((module) => ({ default: module.TableScreen })));
+const TienLenScreen = lazy(() => import('@/screens/TienLenScreen').then((module) => ({ default: module.TienLenScreen })));
 
 function Protected({ children }: { children: JSX.Element }) {
   const ready = useAuthStore((state) => state.ready);
@@ -35,7 +37,7 @@ export function App() {
       <Routes>
         <Route path="/auth" element={<AuthScreen />} />
         <Route path="/lobby" element={<Protected><LobbyScreen /></Protected>} />
-        <Route path="/table/:id" element={<Protected><TableScreen /></Protected>} />
+        <Route path="/table/:id" element={<Protected>{readSelectedGame() === 'tienlen' ? <TienLenScreen /> : <TableScreen />}</Protected>} />
         <Route path="*" element={<Navigate to="/lobby" replace />} />
       </Routes>
     </Suspense>

@@ -97,4 +97,16 @@ describe('MockGateway: máy trạng thái ván chơi với bot', () => {
     await gateway.leaveTable(open.code);
     await expect(gateway.leaveTable(open.code)).resolves.toBeUndefined();
   });
+
+  it('tìm lại bàn của mình và không trả bàn sau khi đã rời', async () => {
+    const authPromise = loginMock();
+    await vi.advanceTimersByTimeAsync(1000);
+    await authPromise;
+    const gateway = new MockGateway();
+    expect(await gateway.currentTableCode()).toBeNull();
+    const table = await gateway.createTable({ stake: 50, maxPlayers: 2, isPublic: false });
+    expect(await gateway.currentTableCode()).toBe(table.code);
+    await gateway.leaveTable(table.code);
+    expect(await gateway.currentTableCode()).toBeNull();
+  });
 });

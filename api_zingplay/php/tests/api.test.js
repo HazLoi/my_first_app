@@ -36,7 +36,8 @@ test("public room listing excludes private, full and non-realtime started rooms"
     $pdo->exec("CREATE TABLE users (id TEXT, phone TEXT, display_name TEXT, role TEXT, status TEXT, balance INTEGER);
       CREATE TABLE sessions (token_hash TEXT, user_id TEXT, expires_at TEXT);
       CREATE TABLE game_rooms (code TEXT, host_player_id TEXT, status TEXT, is_public INTEGER, stake INTEGER, created_at TEXT,
-        max_players INTEGER DEFAULT 4, password_hash TEXT, phase TEXT DEFAULT 'waiting', auto_play INTEGER DEFAULT 0, round_no INTEGER DEFAULT 0);
+        game_type TEXT NOT NULL DEFAULT 'xapxam', max_players INTEGER DEFAULT 4, password_hash TEXT,
+        phase TEXT DEFAULT 'waiting', auto_play INTEGER DEFAULT 0, round_no INTEGER DEFAULT 0);
       CREATE TABLE game_room_players (player_id TEXT, room_code TEXT, display_name TEXT, left_round INTEGER DEFAULT 0);
       INSERT INTO users VALUES ('u', 'phone', 'User', 'player', 'active', 0);
       INSERT INTO sessions VALUES ('" . hash('sha256', str_repeat('a', 43)) . "', 'u', '2099-01-01');
@@ -65,10 +66,11 @@ test("public room listing excludes private, full and non-realtime started rooms"
 test("auth, wallet and admin routes", async (t) => {
   const root = path.resolve(__dirname, "..");
   const temp = fs.mkdtempSync(path.join(__dirname, ".tmp-api-"));
-  for (const name of ["index.php", "bootstrap.php", "router.php", "rules.php", "phase.php", "user", "room", "match", "admin_api"]) {
+  for (const name of ["index.php", "bootstrap.php", "router.php", "rules.php", "phase.php", "user", "room", "match", "admin_api", "games"]) {
     fs.cpSync(path.join(root, name), path.join(temp, name), { recursive: true });
   }
   fs.mkdirSync(path.join(temp, "config"));
+  fs.copyFileSync(path.join(root, "config", "games.php"), path.join(temp, "config", "games.php"));
   fs.writeFileSync(path.join(temp, "config", "database.php"), `<?php
 function database(): PDO {
     $pdo = new PDO('sqlite:' . __DIR__ . '/test.sqlite');

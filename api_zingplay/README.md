@@ -37,8 +37,11 @@ its hidden `.htaccess`. Apache must allow `.htaccess` and enable `mod_headers`
 for the cache headers to take effect. After deployment, browsers that already
 cached the old page may need a hard reload or cleared site data once.
 
-Upload the contents of `php/` into the existing
-`public_html/api_zingplay/` directory, then copy `config/config.example.php` to
+For an existing database, run `sql/004_game_hub.sql` from the repository root
+in phpMyAdmin before deploying the updated API; run `migrate_realtime.sql` first
+if the database predates the realtime schema. Then upload the contents of `php/`
+into the existing `public_html/api_zingplay/` directory, including `games/`,
+and copy `config/config.example.php` to
 `config/config.php` and enter the MySQL host, database name, username, and
 password. An existing root-level `config.php` remains supported if
 `config/config.php` does not exist; the new location takes precedence.
@@ -46,11 +49,14 @@ The directory's `.htaccess` routes requests to `index.php` and blocks direct
 access to configuration and internal PHP files. `bootstrap.php` loads the
 shared code; `user/`, `room/`, and `match/` contain the route handlers.
 
-Import the current `schema.sql` into the game database. It creates missing tables
-and adds missing columns to existing tables, including the wallet, public-room
-and realtime fields. Back up the database before upgrading. Existing rooms
-remain private. New rooms are private unless their creator opts to show them
-in the lobby.
+For a new database, import the current `schema.sql`; it creates missing tables
+and includes wallet, public-room, realtime and game-hub fields. For an existing
+installation, use `migrate_realtime.sql` first if needed, then run
+`sql/004_game_hub.sql` from the repository root. The latter is safe to rerun and
+adds `game_rooms.game_type` (existing rooms default to `xapxam`), nullable
+`game_state`, and the `(game_type, status)` index.
+Back up the database before upgrading. Existing rooms remain private. New rooms
+are private unless their creator opts to show them in the lobby.
 The backend uses only PHP's PDO MySQL driver and does not need Composer packages.
 
 See [`HUONG_DAN_KET_NOI_DATABASE_GAME_ONLINE.md`](../HUONG_DAN_KET_NOI_DATABASE_GAME_ONLINE.md)
@@ -62,9 +68,12 @@ for cPanel steps and the account migration note.
 - `POST /auth/register`, `POST /auth/login`
 - `GET /auth/me`, `POST /auth/logout`
 - `GET /matches?limit=20`
-- `GET /rooms` (authenticated public waiting rooms), `POST /rooms`
-  (`isPublic` defaults to false, `stake` is one of 50/100/200/500/1000 and defaults to 50), `POST /rooms/join`
-- `GET /rooms/{code}`
+- `GET /rooms?game_type=xapxam` (authenticated public waiting rooms), `POST /rooms`
+  (`game_type` defaults to `xapxam`; `isPublic` defaults to false; `stake` defaults to 50),
+  `POST /rooms/quick` and `POST /rooms/join` (optional `game_type`)
+- `GET /rooms/current` returns `{"code":"ABCDE"}` for the authenticated player's active room,
+  or `{"code":null}` when they are not in one.
+- `GET /rooms/{code}?game_type=xapxam`
 - `POST /rooms/{code}/start`, `/submit`, `/leave`
 - Admin only (`users.role = 'admin'`): `GET /admin/stats`, `/admin/users?search=`,
   `/admin/transactions?userId=`, `/admin/matches`;

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { STAKES } from '@/config/rules';
+import { getGame, type GameId } from '@/config/games';
 import { formatChips, t } from '@/i18n';
 import { canAfford, minBalanceFor, quickPlayStake } from '@/lib/lobbyLogic';
 import { gateway } from '@/services';
@@ -16,7 +17,7 @@ const errorText = (error: unknown): string =>
   error instanceof GatewayError && error.message ? error.message : t('common.networkError');
 
 /** Các thao tác vào bàn từ sảnh: kiểm tra xu, gọi gateway, báo lỗi tiếng Việt, điều hướng. */
-export function useLobbyActions(toast: Toast) {
+export function useLobbyActions(toast: Toast, gameType: GameId) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -70,26 +71,36 @@ export function useLobbyActions(toast: Toast) {
   }, []);
 
   const quickPlay = useCallback(async (): Promise<void> => {
-    const stake = quickPlayStake(currentBalance());
+    const stake = gameType === 'tienlen'
+      ? getGame(gameType).betLevels.filter((value) => value <= 200 && canAfford(currentBalance(), value)).sort((a, b) => b - a)[0] ?? null
+      : quickPlayStake(currentBalance());
     if (stake === null) {
       toast(t('lobby.needCoinsQuick', { amount: formatChips(minBalanceFor(STAKES[0])) }), 'error');
       return;
     }
     playSound('click');
     const state = await run(async () => {
-      const joined = await gateway().quickPlay(stake);
+      const joined = await gateway().quickPlay(stake, gameType);
       await rejectIfPoor(joined);
       return joined;
     });
     if (state) enter(state.code);
-  }, [enter, rejectIfPoor, run, toast]);
+  }, [enter, gameType, rejectIfPoor, run, toast]);
+
+  const returnToTable = useCallback(async (): Promise<void> => {
+    playSound('click');
+    const result = await run(async () => ({ code: await gateway().currentTableCode() }));
+    if (!result) return;
+    if (result.code) enter(result.code);
+    else toast(t('lobby.noCurrentTable'), 'info');
+  }, [enter, run, toast]);
 
   const join = useCallback(
     async (code: string, password?: string, knownStake?: number): Promise<boolean> => {
       if (knownStake !== undefined && !checkStake(knownStake)) return false;
       playSound('click');
       const state = await run(async () => {
-        const joined = await gateway().joinTable(code, password || undefined);
+        const joined = await gateway().joinTable(code, password || undefined, gameType);
         await rejectIfPoor(joined);
         return joined;
       });
@@ -97,17 +108,17 @@ export function useLobbyActions(toast: Toast) {
       enter(state.code);
       return true;
     },
-    [checkStake, enter, rejectIfPoor, run],
+    [checkStake, enter, gameType, rejectIfPoor, run],
   );
 
   const create = useCallback(
     async (options: CreateTableOptions): Promise<TableState | null> => {
       if (!checkStake(options.stake)) return null;
       playSound('click');
-      return run(() => gateway().createTable(options));
+      return run(() => gateway().createTable({ ...options, gameType }));
     },
-    [checkStake, run],
+    [checkStake, gameType, run],
   );
 
-  return { busy, enter, checkStake, quickPlay, join, create };
+  return { busy, enter, checkStake, quickPlay, returnToTable, join, create };
 }

@@ -1,23 +1,31 @@
 import { useState } from 'react';
 import { Modal } from '@/components/Modal';
 import { STAKES } from '@/config/rules';
+import { getGame, type GameId } from '@/config/games';
 import { formatChips, t } from '@/i18n';
 import { PASSWORD_MAX, canAfford, minBalanceFor, quickPlayStake } from '@/lib/lobbyLogic';
 import type { CreateTableOptions } from '@/services/types';
 
 interface CreateTableModalProps {
   balance: number;
+  gameType: GameId;
   initialPublic?: boolean;
   busy: boolean;
   onSubmit(options: CreateTableOptions): void;
+  onReturnToTable(): void;
   onClose(): void;
 }
 
 const PLAYER_OPTIONS = [2, 3, 4] as const;
 
-export function CreateTableModal({ balance, initialPublic = true, busy, onSubmit, onClose }: CreateTableModalProps) {
-  const [stake, setStake] = useState<number>(() => quickPlayStake(balance) ?? STAKES[0]);
-  const [maxPlayers, setMaxPlayers] = useState<2 | 3 | 4>(4);
+export function CreateTableModal({ balance, gameType, initialPublic = true, busy, onSubmit, onReturnToTable, onClose }: CreateTableModalProps) {
+  const game = getGame(gameType);
+  const [stake, setStake] = useState<number>(() => gameType === 'tienlen'
+    ? game.betLevels.filter((value) => value <= 200 && canAfford(balance, value)).sort((a, b) => b - a)[0] ?? game.betLevels[0]!
+    : quickPlayStake(balance) ?? STAKES[0]);
+  const [maxPlayers, setMaxPlayers] = useState<2 | 3 | 4>(
+    game.maxPlayers === 2 || game.maxPlayers === 3 ? game.maxPlayers : 4,
+  );
   const [isPublic, setIsPublic] = useState(initialPublic);
   const [password, setPassword] = useState('');
   const poor = !canAfford(balance, stake);
@@ -27,7 +35,7 @@ export function CreateTableModal({ balance, initialPublic = true, busy, onSubmit
       <div>
         <span className="modal-label">{t('lobby.create.stake')}</span>
         <div className="chip-row">
-          {STAKES.map((value) => (
+          {game.betLevels.map((value) => (
             <button key={value} type="button" className="chip" aria-pressed={stake === value} onClick={() => setStake(value)}>
               {formatChips(value)}
             </button>
@@ -39,7 +47,7 @@ export function CreateTableModal({ balance, initialPublic = true, busy, onSubmit
         <div>
           <span className="modal-label">{t('lobby.create.players')}</span>
           <div className="chip-row">
-            {PLAYER_OPTIONS.map((count) => (
+            {PLAYER_OPTIONS.filter((count) => count >= game.minPlayers && count <= game.maxPlayers).map((count) => (
               <button key={count} type="button" className="chip" aria-pressed={maxPlayers === count} onClick={() => setMaxPlayers(count)}>
                 {t('lobby.create.people', { count })}
               </button>
@@ -79,6 +87,9 @@ export function CreateTableModal({ balance, initialPublic = true, busy, onSubmit
         onClick={() => onSubmit({ stake, maxPlayers, isPublic, password: password || undefined })}
       >
         {t('lobby.create.submit')}
+      </button>
+      <button type="button" className="btn modal-btn" disabled={busy} onClick={onReturnToTable}>
+        {t('lobby.returnToTable')}
       </button>
     </Modal>
   );

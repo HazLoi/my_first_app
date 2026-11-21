@@ -1,6 +1,22 @@
 import type { ArrangementIds, Card, PlayerScore } from '@/game-logic';
+import type { GameId } from '@/config/games';
+import type { ChopRules, Combo, TienLenCard } from '@/game-logic/tienlen';
 
-export type Phase = 'waiting' | 'dealing' | 'arranging' | 'revealing' | 'scoring' | 'summary' | 'next';
+export type Phase = 'waiting' | 'dealing' | 'playing' | 'arranging' | 'revealing' | 'scoring' | 'summary' | 'next';
+
+export interface TienLenState {
+  cards: TienLenCard[];
+  turn: string | null;
+  table: Combo | null;
+  lastPlayer: string | null;
+  passed: string[];
+  ranking: string[];
+  required: TienLenCard | null;
+  chopRules: ChopRules;
+  turnSeconds: number;
+  events: Array<{ type: string; player?: string; from?: string; to?: string }>;
+  results: { players: Array<{ id: string; name: string; place: number | null; chips: number; details: { rank: number; chop: number; cold: number; rotten: number; white: number } }> } | null;
+}
 
 export type ConnectionStatus = 'online' | 'reconnecting' | 'offline';
 
@@ -19,6 +35,7 @@ export interface TablePlayer {
   isBot?: boolean;
   avatar?: number;
   level?: number;
+  cardCount?: number;
 }
 
 export interface RoundResults {
@@ -31,6 +48,7 @@ export interface RoundResults {
 /** Trạng thái một bàn, chuẩn hóa từ API PHP hoặc MockGateway. */
 export interface TableState {
   code: string;
+  gameType?: GameId;
   hostId: string;
   stake: number;
   maxPlayers: number;
@@ -53,10 +71,12 @@ export interface TableState {
   results: RoundResults | null;
   cancelled: boolean;
   cancelMessage?: string;
+  tienlen?: TienLenState;
 }
 
 export interface TableSummary {
   code: string;
+  gameType?: GameId;
   hostName: string;
   playerCount: number;
   maxPlayers: number;
@@ -67,6 +87,7 @@ export interface TableSummary {
 }
 
 export interface CreateTableOptions {
+  gameType?: GameId;
   stake: number;
   maxPlayers: 2 | 3 | 4;
   isPublic: boolean;
@@ -116,15 +137,18 @@ export interface GameGateway {
   readonly kind: 'mock' | 'polling';
   readonly capabilities: { chat: boolean; emoji: boolean };
 
-  listTables(): Promise<TableSummary[]>;
+  listTables(gameType?: GameId): Promise<TableSummary[]>;
+  /** Mã bàn tài khoản còn tham gia, hoặc null nếu không còn ở bàn nào. */
+  currentTableCode(): Promise<string | null>;
   createTable(options: CreateTableOptions): Promise<TableState>;
-  joinTable(code: string, password?: string): Promise<TableState>;
-  quickPlay(stake?: number): Promise<TableState>;
+  joinTable(code: string, password?: string, gameType?: GameId): Promise<TableState>;
+  quickPlay(stake?: number, gameType?: GameId): Promise<TableState>;
   leaveTable(code: string): Promise<void>;
   /** Chủ bàn bấm Bắt đầu (WAITING → DEALING). */
   startRound(code: string): Promise<TableState>;
   /** Có optimistic update: state mới được đẩy qua subscription ngay, rollback nếu server từ chối. */
   submitArrangement(code: string, arrangement: ArrangementIds): Promise<TableState>;
+  tienLenAction(code: string, action: { type: 'play'; cards: TienLenCard[] } | { type: 'pass' }): Promise<TableState>;
   sendChat(code: string, text: string): Promise<void>;
   sendEmoji(code: string, emoji: string): Promise<void>;
   history(limit?: number): Promise<MatchHistoryEntry[]>;

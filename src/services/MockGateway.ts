@@ -1,4 +1,5 @@
 import { MIN_BALANCE_MULTIPLIER, RULES, STAKES } from '@/config/rules';
+import { DEFAULT_GAME, type GameId } from '@/config/games';
 import {
   arrangementToHands,
   autoArrange,
@@ -71,6 +72,7 @@ function makeCode(): string {
 
 interface TableOptions {
   code?: string;
+  gameType?: GameId;
   stake: number;
   maxPlayers: number;
   password?: string;
@@ -79,6 +81,7 @@ interface TableOptions {
 
 class MockTable {
   readonly code: string;
+  readonly gameType: GameId;
   readonly stake: number;
   readonly maxPlayers: number;
   readonly password: string | undefined;
@@ -105,6 +108,7 @@ class MockTable {
     private readonly onRoundSaved: (entry: MatchHistoryEntry) => void,
   ) {
     this.code = options.code ?? makeCode();
+    this.gameType = options.gameType ?? DEFAULT_GAME;
     this.stake = options.stake;
     this.maxPlayers = options.maxPlayers;
     this.password = options.password || undefined;
@@ -189,6 +193,7 @@ class MockTable {
     const showResults = ['revealing', 'scoring', 'summary', 'next'].includes(this.phase);
     return {
       code: this.code,
+      gameType: this.gameType,
       hostId: this.hostId,
       stake: this.stake,
       maxPlayers: this.maxPlayers,
@@ -446,6 +451,9 @@ const SAMPLE_TABLES: { host: string; stake: number; players: number; max: number
 /** Gateway chạy cục bộ: bot + máy trạng thái trong trình duyệt, dùng để dev giao diện. */
 export class MockGateway implements GameGateway {
   readonly kind = 'mock' as const;
+  async tienLenAction(): Promise<TableState> {
+    throw new GatewayError('Chế độ thử chưa hỗ trợ Tiến Lên.');
+  }
   readonly capabilities = { chat: true, emoji: true };
   private tables = new Map<string, MockTable>();
   private humanTable = new Map<string, string>();
@@ -510,11 +518,19 @@ export class MockGateway implements GameGateway {
     this.humanTable.delete(userId);
   }
 
-  async listTables(): Promise<TableSummary[]> {
+  async currentTableCode(): Promise<string | null> {
+    const user = this.me();
+    const code = this.humanTable.get(user.id);
+    const table = code ? this.tables.get(code) : undefined;
+    return table?.humans.some((player) => player.id === user.id) ? table.code : null;
+  }
+
+  async listTables(gameType: GameId = DEFAULT_GAME): Promise<TableSummary[]> {
     const live = [...this.tables.values()]
-      .filter((table) => table.isPublic)
+      .filter((table) => table.isPublic && table.gameType === gameType)
       .map((table): TableSummary => ({
         code: table.code,
+        gameType: table.gameType,
         hostName: table.players.find((p) => p.id === table.hostId)?.name ?? '—',
         playerCount: table.players.length,
         maxPlayers: table.maxPlayers,
@@ -524,6 +540,7 @@ export class MockGateway implements GameGateway {
         round: table.round,
       }));
     const samples = this.samples
+      .filter(() => gameType === DEFAULT_GAME)
       .filter((sample) => !this.tables.has(sample.code))
       .map((sample): TableSummary => ({
         code: sample.code,
@@ -545,7 +562,7 @@ export class MockGateway implements GameGateway {
     return this.seat(this.createTableObject({ ...options }));
   }
 
-  async joinTable(code: string, password?: string): Promise<TableState> {
+  async joinTable(code: string, password?: string, gameType: GameId = DEFAULT_GAME): Promise<TableState> {
     const normalized = code.trim().toUpperCase();
     let table = this.tables.get(normalized);
     if (!table) {
@@ -561,18 +578,19 @@ export class MockGateway implements GameGateway {
       for (let i = 0; i < Math.min(sample.players, sample.max - 1); i++) table.addBot();
       table.hostId = table.players[0]?.id ?? '';
     }
+    if (table.gameType !== gameType) throw new GatewayError('Bàn này thuộc game khác.', 409);
     if (table.password && table.password !== password) throw new GatewayError('Sai mật khẩu bàn.', 403);
     return this.seat(table);
   }
 
-  async quickPlay(stake?: number): Promise<TableState> {
+  async quickPlay(stake?: number, gameType: GameId = DEFAULT_GAME): Promise<TableState> {
     const user = this.me();
     const wanted = stake ?? [...STAKES].reverse().find((s) => user.balance >= minBalance(s)) ?? STAKES[0];
     const candidate = [...this.tables.values()].find(
-      (table) => table.isPublic && !table.password && table.stake === wanted && table.players.length < table.maxPlayers,
+      (table) => table.gameType === gameType && table.isPublic && !table.password && table.stake === wanted && table.players.length < table.maxPlayers,
     );
     if (candidate) return this.seat(candidate);
-    return this.createTable({ stake: wanted, maxPlayers: 4, isPublic: true });
+    return this.createTable({ gameType, stake: wanted, maxPlayers: 4, isPublic: true });
   }
 
   async leaveTable(code: string): Promise<void> {

@@ -46,6 +46,8 @@ $keepAlive = static function (PDO $pdo, array $users, string $code) use ($poll):
 // ---------------------------------------------------------------- 1. Tạo phòng, xác thực đầu vào
 $pdo = $fresh();
 [$a, $b, $c, $d] = zp_users($pdo, 4);
+$assert(zp_api($pdo, 'GET', '/rooms/current')['status'] === 401, 'Tìm phòng hiện tại cần đăng nhập.');
+$assert(zp_api($pdo, 'GET', '/rooms/current', $a['token'])['body']['code'] === null, 'Chưa ở phòng nào.');
 foreach ([
     ['maxPlayers' => 1], ['maxPlayers' => 5], ['maxPlayers' => '4'], ['password' => ''], ['password' => str_repeat('x', 33)],
     ['password' => 123], ['autoPlay' => 'yes'],
@@ -54,6 +56,8 @@ foreach ([
 }
 $snapshot = $createAuto($pdo, $a, ['maxPlayers' => 3]);
 $code = $snapshot['room']['code'];
+$assert(zp_api($pdo, 'GET', '/rooms/current', $a['token'])['body']['code'] === $code, 'Chủ phòng tìm lại được phòng.');
+$assert(zp_api($pdo, 'GET', '/rooms/current', $b['token'])['body']['code'] === null, 'Không lộ mã phòng của người khác.');
 $assert($snapshot['room']['autoPlay'] === true && $snapshot['room']['maxPlayers'] === 3
     && $snapshot['room']['phase'] === 'waiting' && $snapshot['room']['hasPassword'] === false
     && $snapshot['room']['phaseDeadline'] === null && $snapshot['room']['round'] === 0, 'Snapshot phòng mới.');
@@ -68,6 +72,7 @@ $assert($join($pdo, $c, $code)['body']['room']['phaseDeadline'] === ($T0 + 3) * 
 $assert($join($pdo, $d, $code)['status'] === 409, 'Phòng 3 người không nhận người thứ 4.');
 $left = zp_api($pdo, 'POST', '/rooms/' . $code . '/leave', $c['token']);
 $assert($left['status'] === 200 && $left['body']['cancelled'] === false, 'Rời phòng chờ.');
+$assert(zp_api($pdo, 'GET', '/rooms/current', $c['token'])['body']['code'] === null, 'Người đã rời không còn phòng hiện tại.');
 $assert($poll($pdo, $a, $code)['body']['room']['phaseDeadline'] === null, 'Thiếu người thì xóa hạn tự bắt đầu.');
 $assert($poll($pdo, $c, $code)['status'] === 403, 'Người đã rời nhận 403.');
 
@@ -76,6 +81,7 @@ $pdo = $fresh();
 [$a, $b, $c] = zp_users($pdo, 3);
 $snapshot = $createAuto($pdo, $a, ['password' => 'bi-mat']);
 $code = $snapshot['room']['code'];
+$assert(zp_api($pdo, 'GET', '/rooms/current', $a['token'])['body']['code'] === $code, 'Tìm lại phòng có mật khẩu không cần vào lại.');
 $assert($snapshot['room']['hasPassword'] === true, 'hasPassword.');
 $wrong = $join($pdo, $b, $code, 'sai');
 $assert($wrong['status'] === 403 && $wrong['body']['error'] === 'Sai mật khẩu bàn.', 'Sai mật khẩu → 403.');
@@ -100,6 +106,7 @@ zp_advance_time(2);
 $assert($phaseOf($pdo, $a, $code) === 'waiting', 'Còn 1 giây vẫn waiting.');
 zp_advance_time(1);
 $dealing = $poll($pdo, $a, $code)['body'];
+$assert(zp_api($pdo, 'GET', '/rooms/current', $a['token'])['body']['code'] === $code, 'Tìm lại phòng đang chơi.');
 $assert($dealing['room']['phase'] === 'dealing' && $dealing['room']['round'] === 1
     && $dealing['room']['started'] === true && $dealing['room']['phaseDeadline'] === (zingplay_now() + 3) * 1000, 'Tự chia bài đúng sau 3s.');
 $assert(count($dealing['cards']) === 13 && $dealing['results'] === null && $dealing['submitted'] === false, 'Có đúng 13 lá, chưa có kết quả.');

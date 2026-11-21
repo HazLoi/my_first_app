@@ -177,8 +177,10 @@
   transition: transform 0.06s linear, box-shadow 0.25s;
   transform: perspective(1100px) rotateY(var(--ry)) rotateX(var(--rx)) scale(1.04);
 }
-.lobby-card:disabled {
-  cursor: progress;
+.lobby-card:disabled { cursor: progress; }
+.lobby-card.is-disabled {
+  cursor: not-allowed;
+  filter: saturate(0.55) brightness(0.78);
 }
 .lobby-card-green {
   background: linear-gradient(165deg, #5df29a 0%, #12a64e 55%, #07612f 100%);

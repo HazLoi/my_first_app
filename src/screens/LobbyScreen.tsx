@@ -16,6 +16,7 @@ import { TablePicker } from '@/components/lobby/TablePicker';
 import { useLobbyActions } from '@/components/lobby/useLobbyActions';
 import { hasFreeSeat } from '@/lib/lobbyLogic';
 import { t } from '@/i18n';
+import { getGame, GAMES, readSelectedGame, saveSelectedGame, type GameId } from '@/config/games';
 import { gateway } from '@/services';
 import { playSound } from '@/services/sound';
 import { GatewayError, type CreateTableOptions, type TableSummary } from '@/services/types';
@@ -23,7 +24,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import './lobby.css';
 
-type View = 'home' | 'tables';
+type View = 'hub' | 'home' | 'tables';
 type ModalState =
   | { type: 'settings' }
   | { type: 'friend' }
@@ -43,9 +44,10 @@ export function LobbyScreen() {
   const soundOn = useSettingsStore((state) => state.soundOn);
   const setSoundOn = useSettingsStore((state) => state.setSoundOn);
   const { toasts, toast } = useToasts();
-  const actions = useLobbyActions(toast);
+  const [gameType, setGameType] = useState<GameId>(readSelectedGame);
+  const actions = useLobbyActions(toast, gameType);
 
-  const [view, setView] = useState<View>('home');
+  const [view, setView] = useState<View>('hub');
   const [modal, setModal] = useState<ModalState>(null);
   const [topUpBusy, setTopUpBusy] = useState(false);
 
@@ -61,6 +63,19 @@ export function LobbyScreen() {
   const user = session?.user;
   const balance = user?.balance ?? 0;
   const canTopUp = gateway().kind === 'mock';
+  const currentGame = getGame(gameType);
+
+  const chooseGame = (game: GameId): void => {
+    const definition = getGame(game);
+    if (!definition.enabled) return;
+    if (game === 'tienlen' && gateway().kind === 'mock') {
+      toast('Tiến Lên cần kết nối API PHP.', 'info');
+      return;
+    }
+    saveSelectedGame(game);
+    setGameType(game);
+    setView('home');
+  };
 
   const soon = useCallback(
     (name: string) => {
@@ -114,21 +129,48 @@ export function LobbyScreen() {
       <div className="lobby-root">
         <LobbyBackground />
 
-        {view === 'tables' ? (
-          <button type="button" className="btn lobby-top-btn" onClick={() => setView('home')}>
-            <span aria-hidden="true">◀</span> {t('lobby.back')}
-          </button>
-        ) : (
+        {view === 'hub' ? (
           <button type="button" className="btn lobby-top-btn" onClick={() => void handleLogout()}>
             <span aria-hidden="true">⎋</span> {t('lobby.logout')}
           </button>
+        ) : (
+          <>
+            <button type="button" className="btn lobby-top-btn" onClick={() => setView('hub')}>
+              <span aria-hidden="true">◀</span> {t('lobby.gameHub')}
+            </button>
+            <button type="button" className="btn lobby-logout-game" onClick={() => void handleLogout()}>
+              <span aria-hidden="true">⎋</span> {t('lobby.logout')}
+            </button>
+          </>
         )}
 
-        {view === 'tables' ? <h1 className="lobby-title text-outline">{t('lobby.tablesTitle')}</h1> : null}
+        <h1 className={`lobby-title text-outline ${view === 'home' ? 'lobby-title-game' : ''}`}>
+          {view === 'hub' ? t('lobby.gameHubTitle') : view === 'tables' ? t('lobby.tablesTitle') : currentGame.name}
+        </h1>
+        {view === 'tables' ? <span className="lobby-current-game">{currentGame.name}</span> : null}
 
         <ProfilePill user={user} onTopUp={canTopUp ? () => void handleTopUp() : undefined} topUpBusy={topUpBusy} />
 
-        {view === 'home' ? (
+        {view === 'hub' ? (
+          <div className="lobby-view" key="hub">
+            <div className="lobby-cards game-hub-cards">
+              {GAMES.map((game, index) => (
+                <LobbyCard
+                  key={game.id}
+                  theme={index === 0 ? 'green' : 'gold'}
+                  title={game.name}
+                  subtitle={game.enabled ? t('lobby.chooseGame') : t('lobby.soon')}
+                  icon={<span className="game-hub-icon">{game.icon}</span>}
+                  restTilt={index === 0 ? 3 : -3}
+                  badge={game.enabled ? undefined : t('lobby.soon')}
+                  disabled={!game.enabled}
+                  onClick={() => chooseGame(game.id)}
+                />
+              ))}
+            </div>
+            <p className="lobby-note">{t('app.virtualCoins')}</p>
+          </div>
+        ) : view === 'home' ? (
           <div className="lobby-view" key="home">
             <SideMenu
               soundOn={soundOn}
@@ -188,6 +230,7 @@ export function LobbyScreen() {
         ) : (
           <div className="lobby-view" key="tables">
             <TablePicker
+              gameType={gameType}
               balance={balance}
               busy={actions.busy}
               onJoin={handleJoinTable}
@@ -200,6 +243,13 @@ export function LobbyScreen() {
           </div>
         )}
 
+        {view !== 'hub' ? (
+          <button type="button" className={`btn btn-gold lobby-return-table lobby-return-table-${view}`}
+            disabled={actions.busy} onClick={() => void actions.returnToTable()}>
+            {t('lobby.returnToTable')}
+          </button>
+        ) : null}
+
         {modal?.type === 'settings' ? <SettingsPanel onClose={() => setModal(null)} /> : null}
         {modal?.type === 'friend' ? (
           <JoinFriendModal
@@ -207,15 +257,18 @@ export function LobbyScreen() {
             onClose={() => setModal(null)}
             onJoin={(code, password) => void actions.join(code, password)}
             onCreatePrivate={() => setModal({ type: 'create', isPublic: false })}
+            onReturnToTable={() => void actions.returnToTable()}
           />
         ) : null}
         {modal?.type === 'create' ? (
           <CreateTableModal
             balance={balance}
+            gameType={gameType}
             initialPublic={modal.isPublic}
             busy={actions.busy}
             onClose={() => setModal(null)}
             onSubmit={(options) => void handleCreate(options)}
+            onReturnToTable={() => void actions.returnToTable()}
           />
         ) : null}
         {modal?.type === 'password' ? (
@@ -223,6 +276,7 @@ export function LobbyScreen() {
             busy={actions.busy}
             onClose={() => setModal(null)}
             onSubmit={(password) => void actions.join(modal.table.code, password, modal.table.stake)}
+            onReturnToTable={() => void actions.returnToTable()}
           />
         ) : null}
         {modal?.type === 'shared' ? (

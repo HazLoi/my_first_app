@@ -51,7 +51,7 @@ export function LobbyCard({ title, subtitle, theme, icon, restTilt = 0, badge, d
     <button
       ref={ref}
       type="button"
-      className={`lobby-card lobby-card-${theme}`}
+      className={`lobby-card lobby-card-${theme} ${disabled ? 'is-disabled' : ''}`}
       style={{ '--rest': `${restTilt}deg` } as CSSProperties}
       disabled={disabled || busy}
       onPointerMove={onMove}

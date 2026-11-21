@@ -21,6 +21,9 @@ export const viLobby = {
   'auth.errNameLong': 'Tên hiển thị tối đa 20 ký tự.',
 
   'lobby.back': 'Quay lại',
+  'lobby.gameHub': 'Chọn game',
+  'lobby.gameHubTitle': 'Chọn game',
+  'lobby.chooseGame': 'Chọn để vào sảnh',
   'lobby.logout': 'Đăng xuất',
   'lobby.topUp': 'Nạp thêm xu ảo',
   'lobby.topUpDone': 'Đã nạp thêm 10.000 xu ảo.',
@@ -30,6 +33,8 @@ export const viLobby = {
   'lobby.soon': 'Sắp ra mắt',
   'lobby.soonText': 'Tính năng “{name}” sắp ra mắt, hãy quay lại sau nhé!',
   'lobby.quick': 'Chơi nhanh',
+  'lobby.returnToTable': 'Quay lại bàn cũ',
+  'lobby.noCurrentTable': 'Bạn hiện không ở trong bàn nào.',
   'lobby.quickSub': 'Vào bàn ngay',
   'lobby.friend': 'Chơi với bạn',
   'lobby.friendSub': 'Nhập mã bàn',

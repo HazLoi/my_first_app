@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type WheelEvent } from 'react';
 import { formatChips, t } from '@/i18n';
+import type { GameId } from '@/config/games';
 import {
   canAfford,
   filterTables,
@@ -21,6 +22,7 @@ const FILTERS: Array<{ id: TableFilter; label: 'lobby.filterAll' | 'lobby.filter
 ];
 
 interface TablePickerProps {
+  gameType: GameId;
   balance: number;
   busy: boolean;
   onJoin(table: TableSummary): void;
@@ -63,7 +65,7 @@ function TableTile({ table, balance, onJoin }: { table: TableSummary; balance: n
 }
 
 /** Màn "Chọn bàn": tab lọc, lưới bàn cuộn ngang, tự làm mới định kỳ. */
-export function TablePicker({ balance, busy, onJoin, onCreate, onQuickPlay }: TablePickerProps) {
+export function TablePicker({ gameType, balance, busy, onJoin, onCreate, onQuickPlay }: TablePickerProps) {
   const [tables, setTables] = useState<TableSummary[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -76,7 +78,7 @@ export function TablePicker({ balance, busy, onJoin, onCreate, onQuickPlay }: Ta
     inFlight.current = true;
     setRefreshing(true);
     try {
-      const list = await gateway().listTables();
+      const list = await gateway().listTables(gameType);
       if (alive.current) {
         setTables(list);
         setFailed(false);
@@ -87,7 +89,7 @@ export function TablePicker({ balance, busy, onJoin, onCreate, onQuickPlay }: Ta
       inFlight.current = false;
       if (alive.current) setRefreshing(false);
     }
-  }, []);
+  }, [gameType]);
 
   useEffect(() => {
     alive.current = true;

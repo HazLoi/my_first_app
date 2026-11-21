@@ -85,12 +85,22 @@ Commit nền: `4f8687d` (`feat: migrate game to static web`). Các mục hoàn t
 
 ## Bản ZIP hiện tại
 
+- Đã mở Tiến Lên trên hub, thêm bàn chơi, action/polling, gợi ý và khán giả chờ ván sau.
+- Luật và API Tiến Lên: `docs/TIENLEN_RULES.md`; checklist giao diện/server: `docs/TEST_CHECKLIST_C.md`.
+- `node tests/run_tienlen_client.mjs`: 80 kiểm tra; giao diện rollback và gateway có test.
+- `php tests/run_tienlen.php`: 2118 pass (gồm 2000 ván); hồi quy realtime Xập Xám: 201 pass trên SQLite.
+  Build web đạt; chưa kiểm thử Tiến Lên trên MySQL/hosting hoặc điện thoại thật.
+- Chưa có hiệu ứng xu bay/số chạy ở bảng tổng kết; hiệu ứng lá đánh chưa theo hướng từng ghế.
+- Database hiện có cần chạy `sql/004_game_hub.sql` trước khi cập nhật API; bàn cũ mặc định `xapxam`.
+- Build và kiểm tra cú pháp PHP đạt; chưa kiểm tra migration trên MySQL/hosting thật.
+- Đã thêm nút **Quay lại bàn cũ**, tìm phòng hiện tại theo tài khoản qua API,
+  kể cả phòng riêng tư; không cần thay đổi database.
 - Màn bàn chơi React đã nối gateway: chờ/bắt đầu ván, xếp và nộp bài, so bài,
   kết quả, lịch sử và thoát bàn; có bàn 3D và 2D dự phòng.
 - Đã kiểm thử một ván với bot và một ván với hai tài khoản qua API PHP/SQLite
   cục bộ, gồm thao tác chuột và cảm ứng. Chưa xác nhận trên MySQL/hosting thật.
-- Kiểm tra: 163 test frontend và build đạt; test luật PHP, 194 kiểm tra realtime
-  và 5 test API đạt. Hai ZIP upload đã được tạo lại từ build và API hiện tại.
+- Trước thay đổi khôi phục phòng, 163 test frontend và build đạt; test luật PHP,
+  194 kiểm tra realtime và 5 test API đạt. Chưa xác nhận thay đổi mới trên hosting thật.
 - Đăng ký dùng tên hiển thị đã nhập (tối đa 20 ký tự theo schema); chat online
   chưa được backend hỗ trợ.
 - Khi cập nhật database cũ, xem `DEPLOY.md` và chạy `api_zingplay/migrate_realtime.sql`
@@ -99,7 +109,6 @@ Commit nền: `4f8687d` (`feat: migrate game to static web`). Các mục hoàn t
 
 Backend PHP/MySQL trong `api_zingplay/php/`, giao diện trong `web/zingplay/`.
 Hướng dẫn triển khai: `HUONG_DAN_KET_NOI_DATABASE_GAME_ONLINE.md`, API: `api_zingplay/README.md`.
-Chưa commit: toàn bộ thay đổi dưới đây còn nằm trong working tree.
 
 ## Đã hoàn thành
 

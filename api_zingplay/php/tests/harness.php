@@ -34,7 +34,8 @@ CREATE TABLE match_players (match_id TEXT REFERENCES matches(id) ON DELETE CASCA
   display_name TEXT, points INTEGER, chip_delta INTEGER NOT NULL DEFAULT 0, balance_after INTEGER, hands_json TEXT,
   chi_results_json TEXT, PRIMARY KEY (match_id, user_id));
 CREATE TABLE game_rooms (code TEXT PRIMARY KEY, host_player_id TEXT, status TEXT NOT NULL DEFAULT 'waiting',
-  is_public INTEGER NOT NULL DEFAULT 0, stake INTEGER NOT NULL DEFAULT 50, started_at TEXT, finished_at TEXT,
+  is_public INTEGER NOT NULL DEFAULT 0, stake INTEGER NOT NULL DEFAULT 50,
+  game_type TEXT NOT NULL DEFAULT 'xapxam', game_state TEXT, started_at TEXT, finished_at TEXT,
   results_json TEXT, cancel_message TEXT, auto_play INTEGER NOT NULL DEFAULT 0, max_players INTEGER NOT NULL DEFAULT 4,
   password_hash TEXT, phase TEXT NOT NULL DEFAULT 'waiting', phase_started_at INTEGER NOT NULL DEFAULT 0,
   phase_deadline INTEGER, version INTEGER NOT NULL DEFAULT 0, round_no INTEGER NOT NULL DEFAULT 0, seed TEXT,

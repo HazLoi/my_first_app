@@ -23,6 +23,11 @@ $columns = static function (PDO $pdo): array {
     }
     return $map;
 };
+$indexes = static function (PDO $pdo): array {
+    return $pdo->query(
+        'SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = \'game_rooms\' ORDER BY INDEX_NAME',
+    )->fetchAll(PDO::FETCH_COLUMN);
+};
 $required = [
     'game_rooms' => ['auto_play', 'max_players', 'password_hash', 'phase', 'phase_started_at', 'phase_deadline', 'version',
         'round_no', 'seed', 'last_activity'],
@@ -60,9 +65,22 @@ $migrated = $columns($pdo);
 $assertColumns($migrated, 'migrate_realtime.sql');
 zp_run_sql_file($pdo, $root . '/migrate_realtime.sql');
 check($columns($pdo) === $migrated, 'migrate_realtime.sql chạy lại làm đổi cấu trúc.');
+$gameHubMigration = dirname($root) . '/sql/004_game_hub.sql';
+zp_run_sql_file($pdo, $gameHubMigration);
+$gameHub = $columns($pdo);
+foreach (['game_type', 'game_state'] as $name) {
+    check(in_array($name, $gameHub['game_rooms'] ?? [], true), "004_game_hub.sql: thiếu cột game_rooms.$name");
+}
+$gameHubIndexes = $indexes($pdo);
+check(in_array('game_rooms_game_type_status_idx', $gameHubIndexes, true), '004_game_hub.sql: thiếu index game_type/status.');
+zp_run_sql_file($pdo, $gameHubMigration);
+check($columns($pdo) === $gameHub, '004_game_hub.sql chạy lại làm đổi cấu trúc.');
+check($indexes($pdo) === $gameHubIndexes, '004_game_hub.sql chạy lại làm đổi index.');
 $room = $pdo->query("SELECT * FROM game_rooms WHERE code = 'ABCDE'")->fetch();
 check($room['stake'] === 100 && (int)$room['auto_play'] === 0 && (int)$room['max_players'] === 4 && $room['phase'] === 'waiting'
-    && (int)$room['version'] === 0 && $room['password_hash'] === null && $room['phase_deadline'] === null, 'Dữ liệu phòng cũ phải được giữ và có giá trị mặc định.');
+    && (int)$room['version'] === 0 && $room['password_hash'] === null && $room['phase_deadline'] === null
+    && $room['game_type'] === 'xapxam' && $room['game_state'] === null,
+    'Dữ liệu phòng cũ phải được giữ và có giá trị mặc định.');
 $player = $pdo->query("SELECT * FROM game_room_players WHERE player_id = 'p1'")->fetch();
 check((int)$player['left_round'] === 0 && (int)$player['last_seen'] === 0, 'Người chơi cũ có giá trị mặc định.');
 

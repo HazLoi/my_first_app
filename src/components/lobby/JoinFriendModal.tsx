@@ -7,11 +7,12 @@ interface JoinFriendModalProps {
   busy: boolean;
   onJoin(code: string, password?: string): void;
   onCreatePrivate(): void;
+  onReturnToTable(): void;
   onClose(): void;
 }
 
 /** "Chơi với bạn": nhập mã bàn (+ mật khẩu nếu có) hoặc tạo bàn riêng tư. */
-export function JoinFriendModal({ busy, onJoin, onCreatePrivate, onClose }: JoinFriendModalProps) {
+export function JoinFriendModal({ busy, onJoin, onCreatePrivate, onReturnToTable, onClose }: JoinFriendModalProps) {
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [invalid, setInvalid] = useState(false);
@@ -69,6 +70,9 @@ export function JoinFriendModal({ busy, onJoin, onCreatePrivate, onClose }: Join
       <div className="modal-or">{t('lobby.joinFriend.or')}</div>
       <button type="button" className="btn btn-orange modal-btn" disabled={busy} onClick={onCreatePrivate}>
         {t('lobby.joinFriend.create')}
+      </button>
+      <button type="button" className="btn modal-btn" disabled={busy} onClick={onReturnToTable}>
+        {t('lobby.returnToTable')}
       </button>
     </Modal>
   );

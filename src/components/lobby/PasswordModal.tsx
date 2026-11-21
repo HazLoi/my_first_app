@@ -6,10 +6,11 @@ import { PASSWORD_MAX } from '@/lib/lobbyLogic';
 interface PasswordModalProps {
   busy: boolean;
   onSubmit(password: string): void;
+  onReturnToTable(): void;
   onClose(): void;
 }
 
-export function PasswordModal({ busy, onSubmit, onClose }: PasswordModalProps) {
+export function PasswordModal({ busy, onSubmit, onReturnToTable, onClose }: PasswordModalProps) {
   const [password, setPassword] = useState('');
   const submit = (event: FormEvent): void => {
     event.preventDefault();
@@ -35,6 +36,9 @@ export function PasswordModal({ busy, onSubmit, onClose }: PasswordModalProps) {
         </div>
         <button type="submit" className="btn btn-green modal-btn" disabled={busy}>
           {t('lobby.password.submit')}
+        </button>
+        <button type="button" className="btn modal-btn" disabled={busy} onClick={onReturnToTable}>
+          {t('lobby.returnToTable')}
         </button>
       </form>
     </Modal>

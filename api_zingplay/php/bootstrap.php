@@ -245,22 +245,22 @@ function cleanup_rooms(PDO $pdo): void
     $now = zingplay_now();
     $pdo->prepare(
         "DELETE FROM game_rooms
-          WHERE auto_play = 0
+          WHERE auto_play = 0 AND game_type = 'xapxam'
             AND ((status = 'finished' AND finished_at < ?) OR (status <> 'finished' AND created_at < ?))",
     )->execute([gmdate('Y-m-d H:i:s', $now - 600), gmdate('Y-m-d H:i:s', $now - 3 * 3600)]);
     // Phòng thời gian thực: xóa khi không còn người hoặc không hoạt động quá 30 phút.
     $pdo->prepare(
-        'DELETE FROM game_rooms
-          WHERE auto_play = 1
+        "DELETE FROM game_rooms
+          WHERE (auto_play = 1 OR game_type = 'tienlen')
             AND (last_activity < ?
-                 OR NOT EXISTS (SELECT 1 FROM game_room_players p WHERE p.room_code = game_rooms.code))',
+                 OR NOT EXISTS (SELECT 1 FROM game_room_players p WHERE p.room_code = game_rooms.code))",
     )->execute([$now - ZINGPLAY_ROOM_IDLE_LIMIT]);
 }
 
 function find_active_membership(PDO $pdo, string $userId): ?array
 {
     $statement = $pdo->prepare(
-        "SELECT game_room_players.player_id, game_room_players.room_code
+        "SELECT game_room_players.player_id, game_room_players.room_code, game_rooms.game_type
            FROM game_room_players
            JOIN game_rooms ON game_rooms.code = game_room_players.room_code
           WHERE game_room_players.user_id = ? AND game_room_players.left_round = 0
@@ -331,6 +331,10 @@ function room_snapshot(PDO $pdo, array $user, string $code): array
     $room = $statement->fetch();
     if (!$room) {
         throw new ApiException(404, 'Không tìm thấy phòng với mã này.');
+    }
+    if (($room['game_type'] ?? 'xapxam') === 'tienlen') {
+        require_once __DIR__ . '/games/tienlen/TienLenEngine.php';
+        return (new TienLenEngine())->viewFor($pdo, $user, $code);
     }
     $playersStatement = $pdo->prepare(
         'SELECT p.player_id, p.user_id, p.seat_number, p.display_name, p.hand_json, p.arrangement_json,

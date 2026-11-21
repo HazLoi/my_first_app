@@ -94,7 +94,7 @@ describe('PollingGateway.subscribeTable', () => {
     const stop = track(gateway, 'ABCDE', { onState: (state) => states.push(state) });
     await vi.advanceTimersByTimeAsync(10);
     expect(states).toHaveLength(1);
-    expect(calls[0]!.url).toMatch(/\/rooms\/ABCDE$/);
+    expect(calls[0]!.url).toMatch(/\/rooms\/ABCDE\?game_type=xapxam$/);
     await vi.advanceTimersByTimeAsync(1000);
     expect(calls[1]!.url).toMatch(/since_version=3/);
     expect(states).toHaveLength(1);
@@ -210,6 +210,34 @@ describe('PollingGateway.subscribeTable', () => {
     expect(states.map((s) => s.version)).toEqual([5]);
     stop();
   });
+
+  it('nhận trạng thái Tiến Lên và gửi action theo phiên bản polling', async () => {
+    localStorage.setItem('zp_selected_game', 'tienlen');
+    const raw = {
+      serverTime: 5000, version: 3, playerId: 'p1',
+      room: { code: 'ABCDE', gameType: 'tienlen', hostId: 'p1', stake: 50, phase: 'playing', deadline: 25000, round: 1,
+        players: [{ id: 'p1', name: 'An', seat: 1, balance: 1000, cardCount: 1 }, { id: 'p2', name: 'Bình', seat: 2, balance: 900, cardCount: 5 }] },
+      cards: [{ rank: 3, suit: 'spades' as const }], turn: 'p1', table: null, lastPlayer: null,
+      passed: [], ranking: [], events: [], required: { rank: 3, suit: 'spades' as const }, results: null,
+      chopRules: { four: ['single_two'] }, turnSeconds: 20,
+    };
+    const calls = mockFetch([{ body: raw }, { body: { ...raw, version: 4, cards: [], turn: 'p2' } }]);
+    const states: TableState[] = [];
+    const gateway = new PollingGateway();
+    track(gateway, 'ABCDE', { onState: (state) => states.push(state) });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(states[0]!.phase).toBe('playing');
+    expect(states[0]!.phaseDeadline).toBe(25000);
+    expect(states[0]!.players[1]!.cardCount).toBe(5);
+    expect(states[0]!.tienlen!.cards).toEqual(raw.cards);
+    const request = gateway.tienLenAction('ABCDE', { type: 'play', cards: raw.cards });
+    await vi.advanceTimersByTimeAsync(10);
+    await request;
+    expect(calls[1]!.url).toMatch(/\/rooms\/ABCDE\/action$/);
+    expect(JSON.parse(calls[1]!.body!)).toEqual({ type: 'play', cards: raw.cards });
+    expect(states.at(-1)!.version).toBe(4);
+    expect(states.at(-1)!.tienlen!.cards).toEqual([]);
+  });
 });
 
 describe('normalizeSnapshot', () => {
@@ -241,5 +269,34 @@ describe('normalizeSnapshot', () => {
     expect(playing.arrangement).toEqual({ front: ['a'], middle: ['b'], back: ['c'] });
     expect(playing.results!.players[0]!.pairs).toEqual([]);
     expect(playing.results!.players[0]!.white).toBeNull();
+  });
+
+  describe('PollingGateway.currentTableCode', () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('tìm bàn đang tham gia hoặc báo không có bàn', async () => {
+      const calls = mockFetch([{ body: { code: 'ABCDE' } }, { body: { code: null } }]);
+      const gateway = new PollingGateway();
+      await expect(gateway.currentTableCode()).resolves.toBe('ABCDE');
+      await expect(gateway.currentTableCode()).resolves.toBeNull();
+      expect(calls.map((call) => call.url)).toEqual([
+        expect.stringMatching(/\/rooms\/current$/),
+        expect.stringMatching(/\/rooms\/current$/),
+      ]);
+    });
+
+    it('khôi phục đúng game của bàn đang tham gia', async () => {
+      localStorage.setItem('zp_selected_game', 'xapxam');
+      mockFetch([{ body: { code: 'ABCDE', gameType: 'tienlen' } }]);
+      await expect(new PollingGateway().currentTableCode()).resolves.toBe('ABCDE');
+      expect(localStorage.getItem('zp_selected_game')).toBe('tienlen');
+    });
+
+    it('không nhầm lỗi mạng hoặc dữ liệu sai với việc không có bàn', async () => {
+      mockFetch([{ body: {} }, 'network-error']);
+      const gateway = new PollingGateway();
+      await expect(gateway.currentTableCode()).rejects.toThrow('mã bàn không hợp lệ');
+      await expect(gateway.currentTableCode()).rejects.toThrow('Không kết nối được máy chủ');
+    });
   });
 });

@@ -90,6 +90,33 @@
   line-height: 1.2;
   z-index: 4;
 }
+.lobby-title-game { top: 22px; }
+.btn.lobby-logout-game {
+  position: absolute;
+  left: 430px;
+  top: 34px;
+  z-index: 5;
+  height: 124px;
+  padding: 0 34px;
+  font-size: 34px;
+}
+.lobby-current-game {
+  position: absolute;
+  left: 50%;
+  top: 142px;
+  z-index: 4;
+  transform: translateX(-50%);
+  font-size: 34px;
+  font-weight: 800;
+  color: #ffe08a;
+}
+.game-hub-cards {
+  left: 50%;
+  top: 270px;
+  transform: translateX(-50%);
+  gap: 80px;
+}
+.game-hub-icon { font-size: 132px; line-height: 1; }
 
 .lobby-profile {
   position: absolute;
@@ -229,6 +256,14 @@
   font-size: 30px;
   color: #9fb0e8;
 }
+.btn.lobby-return-table {
+  position: absolute;
+  z-index: 6;
+  height: 76px;
+  font-size: 30px;
+}
+.lobby-return-table-home { left: 270px; top: 164px; }
+.lobby-return-table-tables { left: 40px; top: 650px; width: 360px; }
 
 /* ---------- Chọn bàn ---------- */
 .tp-root {

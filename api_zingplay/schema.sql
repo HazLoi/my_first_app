@@ -74,6 +74,8 @@ CREATE TABLE IF NOT EXISTS game_rooms (
   status ENUM('waiting', 'playing', 'finished', 'cancelled') NOT NULL DEFAULT 'waiting',
   is_public BOOLEAN NOT NULL DEFAULT FALSE,
   stake INT UNSIGNED NOT NULL DEFAULT 50,
+  game_type VARCHAR(20) NOT NULL DEFAULT 'xapxam',
+  game_state MEDIUMTEXT NULL,
   started_at DATETIME NULL,
   finished_at DATETIME NULL,
   results_json JSON NULL,
@@ -89,7 +91,8 @@ CREATE TABLE IF NOT EXISTS game_rooms (
   seed CHAR(32) NULL,
   last_activity BIGINT NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX game_rooms_status_created_idx (status, created_at)
+  INDEX game_rooms_status_created_idx (status, created_at),
+  INDEX game_rooms_game_type_status_idx (game_type, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS game_room_players (
@@ -186,6 +189,28 @@ SET @ddl = IF(
           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'game_rooms' AND COLUMN_NAME = 'stake'),
   'DO 0',
   'ALTER TABLE game_rooms ADD COLUMN stake INT UNSIGNED NOT NULL DEFAULT 50');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF(
+  EXISTS (SELECT 1 FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'game_rooms' AND COLUMN_NAME = 'game_type'),
+  'DO 0',
+  'ALTER TABLE game_rooms ADD COLUMN game_type VARCHAR(20) NOT NULL DEFAULT ''xapxam''');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF(
+  EXISTS (SELECT 1 FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'game_rooms' AND COLUMN_NAME = 'game_state'),
+  'DO 0',
+  'ALTER TABLE game_rooms ADD COLUMN game_state MEDIUMTEXT NULL');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF(
+  EXISTS (SELECT 1 FROM information_schema.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'game_rooms'
+            AND INDEX_NAME = 'game_rooms_game_type_status_idx'),
+  'DO 0',
+  'ALTER TABLE game_rooms ADD INDEX game_rooms_game_type_status_idx (game_type, status)');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- Mở rộng password_hash từ CHAR(128) lên VARCHAR(255) (chỉ nới rộng, không mất dữ liệu).
